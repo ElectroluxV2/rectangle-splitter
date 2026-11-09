@@ -1,0 +1,1345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rectangle splitter: n near-equal pieces, minimal shared edges</title>
+<meta name="description" content="Split an X × Y rectangle of 3×3-cell squares into n rectangles of similar area with the shortest total shared edges. Compares strips, grids, bisection, treemaps, dynamic programming and exhaustive search.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%232563eb'/%3E%3Cpath d='M4 4h14v10H4zM20 4h8v16h-8zM4 16h14v12H4zM20 22h8v6h-8z' fill='%23e0eaff'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f5f6f8; --panel: #fff; --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb;
+  --brand: #2563eb; --brand-soft: #e0eaff; --edge: #e11d48; --ok: #047857; --warn: #b45309; --bad: #dc2626;
+  --sq: #eef1f6; --sq-line: rgba(31, 41, 55, .30); --cell-line: rgba(31, 41, 55, .13);
+  --radius: 10px; --shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 2px 10px rgba(0, 0, 0, .04);
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1015; --panel: #171a21; --ink: #e5e7eb; --muted: #9aa3b2; --line: #2a2f3a;
+    --brand: #6ea8fe; --brand-soft: #1d2a44; --edge: #fb7185; --ok: #34d399; --warn: #fbbf24; --bad: #f87171;
+    --sq: #1e232d; --sq-line: rgba(229, 231, 235, .26); --cell-line: rgba(229, 231, 235, .09);
+    --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+a { color: var(--brand); }
+header { max-width: 1520px; margin: 0 auto; padding: 18px 24px 4px; }
+h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -.01em; }
+.sub { color: var(--muted); margin: 0; }
+.layout { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 16px; max-width: 1520px; margin: 0 auto; padding: 12px 24px 40px; align-items: start; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); min-width: 0; }
+aside.panel { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }
+main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+h2 { font-size: 15px; margin: 0 0 10px; }
+h3 { font-size: 13px; margin: 14px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.field { margin-bottom: 12px; }
+.field label { display: flex; justify-content: space-between; align-items: baseline; font-weight: 600; margin-bottom: 4px; }
+.field label small { font-weight: 400; color: var(--muted); }
+.pair { display: grid; grid-template-columns: 1fr 64px; gap: 8px; align-items: center; }
+input[type=range] { width: 100%; accent-color: var(--brand); }
+input[type=number], select { width: 100%; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); font: inherit; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.hint b { color: var(--ink); }
+.toggles label { display: flex; gap: 8px; align-items: center; margin: 4px 0; cursor: pointer; }
+.presets { display: grid; gap: 6px; }
+.preset { text-align: left; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 7px 9px; cursor: pointer; font: inherit; }
+.preset:hover { border-color: var(--brand); }
+.preset.active { border-color: var(--brand); background: var(--brand-soft); }
+.preset b { display: block; font-size: 13px; }
+.preset span { color: var(--muted); font-size: 12px; }
+.views { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+figure { margin: 0; min-width: 0; }
+.figtitle { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; min-height: 28px; }
+.figtitle h2 { margin: 0; }
+.figtitle select { width: auto; max-width: 60%; }
+.cv-wrap { position: relative; display: flex; justify-content: center; }
+canvas { display: block; border-radius: 3px; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 8px; text-align: center; }
+figcaption b { color: var(--ink); }
+.stale .cv-wrap { opacity: .4; transition: opacity .2s; }
+.tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 12px; box-shadow: 0 4px 14px rgba(0, 0, 0, .15); white-space: nowrap; z-index: 2; display: none; }
+.callout { margin-top: 12px; padding: 10px 12px; border-radius: 8px; border-left: 4px solid var(--brand); background: var(--brand-soft); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, var(--panel)); }
+.callout:empty { display: none; }
+.statusline { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; margin-top: 10px; min-height: 18px; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--brand); display: inline-block; animation: spin .8s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.card { padding: 12px 14px; }
+.card .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.card .v { font-size: 24px; font-weight: 700; margin: 2px 0; }
+.card .v small { font-size: 13px; font-weight: 500; color: var(--muted); }
+.card .d { font-size: 12.5px; color: var(--muted); }
+.card .d b { color: var(--ink); }
+.ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); } .muted { color: var(--muted); }
+.chip { display: inline-block; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; background: var(--brand-soft); color: var(--brand); vertical-align: 1px; }
+.chip.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.c, th.c { text-align: center; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: color-mix(in srgb, var(--brand) 6%, transparent); }
+tr.selected td { background: var(--brand-soft) !important; }
+.aname { font-weight: 600; white-space: nowrap; }
+.adesc { color: var(--muted); font-size: 12px; max-width: 360px; }
+td.status { font-size: 12px; min-width: 150px; }
+.split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
+.scroll { max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.scroll table th { position: sticky; top: 0; background: var(--panel); }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; border: 1px solid rgba(0, 0, 0, .15); }
+tr.hl td { background: color-mix(in srgb, var(--edge) 12%, transparent); }
+svg text { fill: var(--muted); font-size: 11px; font-family: inherit; }
+svg .hl { stroke: var(--ink); stroke-width: 2; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); font-size: 12px; margin-top: 6px; }
+.legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid; vertical-align: 3px; margin-right: 5px; }
+.about p, .about li { max-width: 900px; }
+.about code { background: var(--sq); padding: 0 4px; border-radius: 4px; }
+footer { color: var(--muted); font-size: 12px; text-align: center; padding: 0 0 24px; }
+@media (max-width: 1180px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .split { grid-template-columns: 1fr; } }
+@media (max-width: 980px) { .layout { grid-template-columns: 1fr; } aside.panel { position: static; max-height: none; } }
+@media (max-width: 720px) { .views { grid-template-columns: 1fr; } .layout, header { padding-left: 12px; padding-right: 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rectangle splitter</h1>
+  <p class="sub">Split an X × Y rectangle of squares (each 3 × 3 cells, never cut through) into <i>n</i> rectangles of similar area so that the total length of shared edges is as small as possible.</p>
+</header>
+
+<div class="layout">
+  <aside class="panel" aria-label="Settings">
+    <h2>Settings</h2>
+    <div class="field">
+      <label for="xn">Width X <small>squares</small></label>
+      <div class="pair"><input id="xr" type="range" min="1" max="100" aria-label="Width X"><input id="xn" type="number" min="1" max="100"></div>
+    </div>
+    <div class="field">
+      <label for="yn">Height Y <small>squares</small></label>
+      <div class="pair"><input id="yr" type="range" min="1" max="100" aria-label="Height Y"><input id="yn" type="number" min="1" max="100"></div>
+      <div class="hint" id="sizeHint"></div>
+    </div>
+    <div class="field">
+      <label for="nn">Pieces n</label>
+      <div class="pair"><input id="nr" type="range" min="1" max="400" aria-label="Pieces n"><input id="nn" type="number" min="1" max="400"></div>
+    </div>
+    <div class="field">
+      <label for="tn">Area tolerance <small>± % of average</small></label>
+      <div class="pair"><input id="tr" type="range" min="0" max="50" aria-label="Area tolerance"><input id="tn" type="number" min="0" max="50"></div>
+      <div class="hint" id="rangeHint"></div>
+    </div>
+    <div class="field">
+      <label for="searchSel">Exhaustive search time</label>
+      <select id="searchSel">
+        <option value="0">Off</option><option value="1">1 s</option><option value="3">3 s</option><option value="10">10 s</option><option value="30">30 s</option>
+      </select>
+      <div class="hint">Runs in the background; longer can prove more cases optimal.</div>
+    </div>
+    <h3>Display</h3>
+    <div class="toggles">
+      <label><input type="checkbox" id="optCells"> Show 3 × 3 cells</label>
+      <label><input type="checkbox" id="optEdges"> Highlight shared edges</label>
+      <label><input type="checkbox" id="optLabels"> Show piece areas</label>
+    </div>
+    <h3>Presets</h3>
+    <div class="presets" id="presets"></div>
+  </aside>
+
+  <main>
+    <section class="panel" aria-label="Before and after">
+      <div class="views">
+        <figure>
+          <div class="figtitle"><h2>Before</h2></div>
+          <div class="cv-wrap"><canvas id="before" aria-label="Original rectangle"></canvas></div>
+          <figcaption id="beforeCap"></figcaption>
+        </figure>
+        <figure id="afterFig">
+          <div class="figtitle"><h2>After</h2><select id="viewSel" aria-label="Layout shown"></select></div>
+          <div class="cv-wrap"><canvas id="after" aria-label="Split result"></canvas><div class="tip" id="tip"></div></div>
+          <figcaption id="afterCap"></figcaption>
+        </figure>
+      </div>
+      <div class="statusline" id="status" role="status" aria-live="polite"></div>
+      <div class="callout" id="callout"></div>
+    </section>
+
+    <section class="cards" id="cards" aria-label="Summary"></section>
+
+    <section class="panel">
+      <h2>Algorithm comparison</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th>Algorithm</th><th class="num" title="Total length of edges shared by two pieces, in squares">Shared edges</th><th class="num">in cells</th><th class="num">vs best</th>
+            <th class="num">Areas (min–max)</th><th class="num">Max deviation</th><th class="c">Within ±T</th><th class="c" title="Can the layout be produced by straight edge-to-edge cuts?">Straight cuts</th><th class="num">Time</th><th>Result</th>
+          </tr></thead>
+          <tbody id="cmpBody"></tbody>
+        </table>
+      </div>
+      <div class="hint">Click a row to show that layout in the “After” view. “vs best” compares only layouts within the tolerance.</div>
+    </section>
+
+    <section class="panel">
+      <h2>Piece sizes <span class="muted" id="piecesTitle" style="font-weight:400"></span></h2>
+      <div class="split">
+        <div>
+          <div id="areaChart"></div>
+          <div class="legend"><span><i style="border-color:var(--muted);border-top-style:dashed"></i>average area</span><span><i style="border-color:color-mix(in srgb, var(--ok) 45%, transparent);border-top-width:8px;vertical-align:0"></i>allowed range</span><span><i style="border-color:var(--bad)"></i>outside tolerance</span></div>
+        </div>
+        <div class="scroll"><table><thead><tr><th>#</th><th>Size (squares)</th><th>Cells</th><th class="num">Area</th><th class="num">vs avg</th><th class="num">%</th></tr></thead><tbody id="piecesBody"></tbody></table></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Trade-off: shared edges vs. tolerance</h2>
+      <div id="tradeoff"></div>
+      <div class="legend">
+        <span><i style="border-color:var(--brand)"></i>best of guillotine + pinwheel DP</span>
+        <span><i style="border-color:var(--warn);border-top-style:dashed"></i>columns DP</span>
+        <span><i style="border-color:var(--muted);border-top-style:dotted"></i>lower bound</span>
+        <span><b style="color:var(--edge)">◆</b> best found on this page (incl. exhaustive search)</span>
+        <span><b class="bad">×</b> no layout possible</span>
+        <span>Click the chart to set the tolerance.</span>
+      </div>
+    </section>
+
+    <section class="panel about">
+      <h2>How it works</h2>
+      <p>The big rectangle is <b>X × Y squares</b>. Each square is 3 × 3 cells and may not be cut through, so every cut runs along square boundaries. Lengths are shown in squares; one square edge is 3 cells.</p>
+      <p><b>Shared edges</b> are the total length of all boundaries between two different pieces. The outer border doesn't count. Every inner edge belongs to exactly two pieces, which gives the key identity:</p>
+      <p style="text-align:center"><code>shared edges = Σ (wᵢ + hᵢ) − X − Y</code></p>
+      <p>So the goal is to make the pieces' half-perimeters as small as possible, which means pieces as close to square as possible. It also gives a <b>lower bound</b>: a piece of area <i>a</i> needs at least min(w + h) over all w × h = a that fit. Combining the cheapest allowed areas that add up to X·Y gives a value no layout can beat.</p>
+      <p><b>Similar size:</b> every piece must have an area within ±T % of the average X·Y / n. The two whole numbers nearest the average are always allowed. If two layouts have the same shared-edge length, the one whose areas are closer to the average wins (smaller sum of squared deviations).</p>
+      <h3>Algorithms</h3>
+      <ul id="algoList"></ul>
+      <p class="muted">Every result is checked independently in the page: the pieces must tile the rectangle exactly, and shared edges are counted square by square.</p>
+    </section>
+  </main>
+</div>
+<footer>Single-file app · <a href="https://github.com/ElectroluxV2/rectangle-splitter">source on GitHub</a> · settings are saved in the URL, so you can share a link</footer>
+
+<script id="core">
+'use strict';
+/* Solver core: pure functions, used by the page and by Web Workers (this script's text becomes the worker). */
+const ALGOS = [
+  { id: 'strips', name: 'Strips', desc: 'n parallel strips across the shorter side. The simplest possible cut.' },
+  { id: 'grid', name: 'Uniform grid', desc: 'r × c grid with r · c = n. Falls back to strips when n is prime.' },
+  { id: 'bisect', name: 'Recursive bisection', desc: 'Halve the piece count and cut across the longer side, recursively (k-d tree style).' },
+  { id: 'squarify', name: 'Squarified treemap', desc: 'Bruls–Huizing–van Wijk treemap: fill rows along the short side while the pieces get squarer.' },
+  { id: 'columns', name: 'Columns DP', desc: 'Best layout made of full-height columns (or full-width rows), each stacked with near-equal pieces. Exact within that family.' },
+  { id: 'guillotine', name: 'Guillotine DP', desc: 'Best layout made only of straight edge-to-edge cuts, applied recursively. Exact within that family.' },
+  { id: 'pinwheel', name: 'Guillotine + pinwheel DP', desc: 'Guillotine DP that may also place a 5-piece pinwheel (no straight cut can separate it) inside any sub-rectangle.' },
+  { id: 'search', name: 'Exhaustive search', desc: 'Branch & bound over every possible layout, seeded with the best result above. Proves the optimum if it finishes in time.' },
+];
+const DP_BUDGET = 6e8, PIN_BUDGET = 6e7, COL_BUDGET = 2e8, CHART_BUDGET = 1.2e8, CHART_PIN_BUDGET = 1.5e7, CHART_COL_BUDGET = 4e7;
+const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+
+function allowedRange(X, Y, n, T) {
+  const XY = X * Y;
+  const lo = Math.min(Math.floor(XY / n), Math.ceil(XY * (100 - T) / (100 * n)));
+  const hi = Math.max(Math.ceil(XY / n), Math.floor(XY * (100 + T) / (100 * n)));
+  return { A: XY / n, lo: Math.max(1, lo), hi: Math.min(XY, hi) };
+}
+// Costs are exact integers: (w + h) · M + area², where M exceeds any possible Σ area².
+// Minimising the sum minimises shared edges first and, among equals, the spread of areas.
+function tieScale(X, Y, hi) { return hi * X * Y + 1; }
+function evenSplit(L, k) { const b = Math.floor(L / k), r = L % k, out = []; for (let i = 0; i < k; i++) out.push(b + (i < r ? 1 : 0)); return out; }
+function layoutCost(rects, M) { let c = 0; for (const r of rects) { const a = r[2] * r[3]; c += (r[2] + r[3]) * M + a * a; } return c; }
+function withinRange(rects, lo, hi) { return rects.every(r => { const a = r[2] * r[3]; return a >= lo && a <= hi; }); }
+function cmpKey(a, b) { for (let i = 0; i < a.length; i++) { const d = a[i] - b[i]; if (Math.abs(d) > 1e-9) return d < 0 ? -1 : 1; } return 0; }
+
+function evaluate(X, Y, rects, lo, hi, A) {
+  const lab = new Int32Array(X * Y).fill(-1);
+  for (let i = 0; i < rects.length; i++) {
+    const [x, y, w, h] = rects[i];
+    if (!(w >= 1 && h >= 1 && x >= 0 && y >= 0 && x + w <= X && y + h <= Y)) return { ok: false, error: 'piece ' + (i + 1) + ' lies outside the rectangle' };
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
+      const c = yy * X + xx;
+      if (lab[c] !== -1) return { ok: false, error: 'pieces overlap' };
+      lab[c] = i;
+    }
+  }
+  for (let c = 0; c < lab.length; c++) if (lab[c] === -1) return { ok: false, error: 'some squares are not covered' };
+  let shared = 0;
+  const pairs = new Set();
+  for (let y = 0; y < Y; y++) for (let x = 0; x < X; x++) {
+    const a = lab[y * X + x];
+    if (x + 1 < X) { const b = lab[y * X + x + 1]; if (a !== b) { shared++; pairs.add(a < b ? a * 1e5 + b : b * 1e5 + a); } }
+    if (y + 1 < Y) { const b = lab[(y + 1) * X + x]; if (a !== b) { shared++; pairs.add(a < b ? a * 1e5 + b : b * 1e5 + a); } }
+  }
+  const areas = rects.map(r => r[2] * r[3]);
+  let minA = Infinity, maxA = -Infinity, ssd = 0, maxDev = 0, within = true;
+  for (const a of areas) {
+    if (a < minA) minA = a;
+    if (a > maxA) maxA = a;
+    ssd += (a - A) * (a - A);
+    maxDev = Math.max(maxDev, Math.abs(a - A));
+    if (a < lo || a > hi) within = false;
+  }
+  return { ok: true, labels: lab, areas, shared, pairs: pairs.size, minA, maxA, ssd, std: Math.sqrt(ssd / areas.length), maxDev, maxDevPct: 100 * maxDev / A, within, guillotine: isGuillotine(rects) };
+}
+
+// A layout is guillotine if it can be split by a full straight cut, recursively.
+function isGuillotine(rects) {
+  const stack = [rects.map((_, i) => i)];
+  while (stack.length) {
+    const g = stack.pop();
+    if (g.length <= 1) continue;
+    let parts = splitAtCuts(rects, g, 0);
+    if (parts.length < 2) parts = splitAtCuts(rects, g, 1);
+    if (parts.length < 2) return false;
+    for (const p of parts) stack.push(p);
+  }
+  return true;
+}
+function splitAtCuts(rects, group, axis) {
+  const s = group.slice().sort((a, b) => rects[a][axis] - rects[b][axis]);
+  const parts = [];
+  let cur = [], end = -Infinity;
+  for (const i of s) {
+    const st = rects[i][axis], en = st + rects[i][axis + 2];
+    if (cur.length && st >= end) { parts.push(cur); cur = []; }
+    cur.push(i);
+    if (en > end) end = en;
+  }
+  parts.push(cur);
+  return parts;
+}
+
+function solveStrips(X, Y, n) {
+  const vertical = X >= Y, L = vertical ? X : Y;
+  if (n > L) return { error: 'Needs n ≤ ' + L + ' (squares along the long side)' };
+  const rects = [];
+  let p = 0;
+  for (const s of evenSplit(L, n)) { rects.push(vertical ? [p, 0, s, Y] : [0, p, X, s]); p += s; }
+  return { rects, note: n + (vertical ? ' vertical' : ' horizontal') + ' strips' };
+}
+
+function solveGrid(X, Y, n, lo, hi, A) {
+  let best = null, bk = null;
+  for (let c = 1; c <= n; c++) {
+    if (n % c) continue;
+    const r = n / c;
+    if (c > X || r > Y) continue;
+    const ws = evenSplit(X, c), hs = evenSplit(Y, r);
+    let within = true, ssd = 0;
+    for (const w of ws) for (const h of hs) { const a = w * h; if (a < lo || a > hi) within = false; ssd += (a - A) * (a - A); }
+    const key = [within ? 0 : 1, (c - 1) * Y + (r - 1) * X, ssd];
+    if (!bk || cmpKey(key, bk) < 0) { bk = key; best = { c, r, ws, hs }; }
+  }
+  if (!best) return { error: 'No r × c = n grid fits' };
+  const rects = [];
+  let py = 0;
+  for (const h of best.hs) { let px = 0; for (const w of best.ws) { rects.push([px, py, w, h]); px += w; } py += h; }
+  return { rects, note: `${best.r} ${best.r === 1 ? 'row' : 'rows'} × ${best.c} ${best.c === 1 ? 'column' : 'columns'}` };
+}
+
+function solveBisect(X, Y, n) {
+  const rects = [];
+  (function rec(x, y, w, h, k) {
+    if (k === 1) { rects.push([x, y, w, h]); return; }
+    const ks = [];
+    for (let k1 = 1; k1 < k; k1++) ks.push(k1);
+    ks.sort((a, b) => Math.abs(2 * a - k) - Math.abs(2 * b - k) || a - b);
+    const orients = w >= h ? [0, 1] : [1, 0];
+    for (const k1 of ks) {
+      const k2 = k - k1;
+      for (const o of orients) {
+        const L = o === 0 ? w : h, S = o === 0 ? h : w;
+        const pMin = Math.max(1, Math.ceil(k1 / S)), pMax = Math.min(L - 1, L - Math.ceil(k2 / S));
+        if (pMin > pMax) continue;
+        const p = Math.min(pMax, Math.max(pMin, Math.round(L * k1 / k)));
+        if (o === 0) { rec(x, y, p, h, k1); rec(x + p, y, w - p, h, k2); }
+        else { rec(x, y, w, p, k1); rec(x, y + p, w, h - p, k2); }
+        return;
+      }
+    }
+    throw new Error('bisection got stuck');
+  })(0, 0, X, Y, n);
+  return { rects };
+}
+
+function solveSquarify(X, Y, n) {
+  const rects = [];
+  let x = 0, y = 0, w = X, h = Y, k = n;
+  while (k > 0) {
+    if (k === 1) { rects.push([x, y, w, h]); break; }
+    const colMode = w >= h, S = colMode ? h : w, L = colMode ? w : h, a = (w * h) / k;
+    let m = 1, worst = Infinity;
+    for (let j = 1; j <= Math.min(k, S); j++) {
+      const t = j * a / S, len = S / j, r = Math.max(t / len, len / t);
+      if (r <= worst) { worst = r; m = j; } else break;
+    }
+    let t;
+    if (m === k) t = L;
+    else {
+      m = Math.max(m, k - (L - 1) * S);
+      t = Math.max(1, Math.min(L - 1, Math.round(m * a / S)));
+      while (t > 1 && (L - t) * S < k - m) t--;
+    }
+    let p = 0;
+    for (const len of evenSplit(S, m)) { rects.push(colMode ? [x, y + p, t, len] : [x + p, y, len, t]); p += len; }
+    if (colMode) { x += t; w -= t; } else { y += t; h -= t; }
+    k -= m;
+  }
+  return { rects };
+}
+
+// Columns spanning the full height Y; column of width cw holds k pieces stacked with near-equal heights.
+function columnsDP(X, Y, n, lo, hi, M, budget) {
+  const opts = [null], pre = new Float64Array(X + 1);
+  for (let cw = 1; cw <= X; cw++) {
+    const list = [];
+    const k0 = Math.max(1, Math.ceil(cw * Y / hi)), k1 = Math.min(n, Y, Math.floor(cw * Y / lo));
+    for (let k = k0; k <= k1; k++) {
+      const hf = Math.floor(Y / k), r = Y % k;
+      if (cw * hf < lo || cw * (hf + (r ? 1 : 0)) > hi) continue;
+      const aS = cw * hf, aL = cw * (hf + 1);
+      list.push(k, (k * cw + Y) * M + (k - r) * aS * aS + r * aL * aL);
+    }
+    opts.push(list);
+    pre[cw] = pre[cw - 1] + list.length / 2;
+  }
+  let est = 0;
+  for (let x = 1; x <= X; x++) {
+    const mLo = Math.max(1, Math.ceil(x * Y / hi)), mHi = Math.min(n, Math.floor(x * Y / lo));
+    if (mHi >= mLo) est += (mHi - mLo + 1) * pre[x];
+  }
+  if (est > budget) return { tooLarge: true };
+  const N1 = n + 1, best = new Float64Array((X + 1) * N1).fill(Infinity), ch = new Int32Array((X + 1) * N1);
+  best[0] = 0;
+  for (let x = 1; x <= X; x++) {
+    const mLo = Math.max(1, Math.ceil(x * Y / hi)), mHi = Math.min(n, Math.floor(x * Y / lo));
+    for (let m = mLo; m <= mHi; m++) {
+      let b = Infinity, bc = 0;
+      for (let cw = 1; cw <= x; cw++) {
+        const list = opts[cw], base = (x - cw) * N1;
+        for (let i = 0; i < list.length; i += 2) {
+          const k = list[i];
+          if (k > m) break;
+          const prev = best[base + m - k];
+          if (prev === Infinity) continue;
+          const c = prev + list[i + 1];
+          if (c < b) { b = c; bc = cw * 4096 + k; }
+        }
+      }
+      best[x * N1 + m] = b; ch[x * N1 + m] = bc;
+    }
+  }
+  const cost = best[X * N1 + n];
+  if (cost === Infinity) return null;
+  const cols = [];
+  for (let x = X, m = n; x > 0;) { const c = ch[x * N1 + m], cw = Math.floor(c / 4096), k = c % 4096; cols.push([cw, k]); x -= cw; m -= k; }
+  cols.reverse();
+  const rects = [];
+  let px = 0;
+  for (const [cw, k] of cols) { let py = 0; for (const hh of evenSplit(Y, k)) { rects.push([px, py, cw, hh]); py += hh; } px += cw; }
+  return { cost, rects, cols: cols.length };
+}
+function solveColumns(X, Y, n, lo, hi, M, budget = COL_BUDGET) {
+  const a = columnsDP(X, Y, n, lo, hi, M, budget), b = columnsDP(Y, X, n, lo, hi, M, budget);
+  if (a && a.tooLarge && b && b.tooLarge) return { error: 'Skipped: too large to compute' };
+  let best = null;
+  if (a && a.rects) best = { cost: a.cost, rects: a.rects, note: a.cols + (a.cols === 1 ? ' column' : ' columns') };
+  if (b && b.rects && (!best || b.cost < best.cost)) best = { cost: b.cost, rects: b.rects.map(r => [r[1], r[0], r[3], r[2]]), note: b.cols + (b.cols === 1 ? ' row' : ' rows') };
+  return best || { error: 'No column layout fits the tolerance' };
+}
+
+// Pinwheel of 5 single pieces in a w × h rectangle: A top-left, B top-right, C bottom-right,
+// D bottom-left, E centre. Its half-perimeter sum is 2(w + h) + (centre width + centre height).
+// Writes [cost, x1, x2, y1, y2, work] to out; returns true if it beats `bound`.
+function pinwheelBest(w, h, lo, hi, M, bound, out) {
+  const base = 2 * (w + h);
+  let bc = bound, work = 0, found = false;
+  for (let x1 = 1; x1 <= w - 2; x1++) {
+    const dLo = Math.ceil(lo / x1), dHi = Math.floor(hi / x1);
+    for (let x2 = x1 + 1; x2 <= w - 1; x2++) {
+      work++;
+      const ew = x2 - x1, bw = w - x2, cw = w - x1;
+      const y1a = Math.max(1, Math.ceil(lo / x2), h - dHi), y1b = Math.min(h - 2, Math.floor(hi / x2), h - dLo);
+      if (y1a > y1b) continue;
+      const y2c = Math.max(Math.ceil(lo / bw), h - Math.floor(hi / cw)), y2d = Math.min(Math.floor(hi / bw), h - Math.ceil(lo / cw), h - 1);
+      if (y2c > y2d) continue;
+      const eLo = Math.ceil(lo / ew), eHi = Math.floor(hi / ew);
+      if (eLo > eHi) continue;
+      for (let y1 = y1a; y1 <= y1b; y1++) {
+        work++;
+        const y2 = Math.max(y2c, y1 + eLo);
+        if (y2 > y2d || y2 - y1 > eHi) continue;
+        const eh = y2 - y1, aA = x2 * y1, aB = bw * y2, aC = cw * (h - y2), aD = x1 * (h - y1), aE = ew * eh;
+        const c = (base + ew + eh) * M + aA * aA + aB * aB + aC * aC + aD * aD + aE * aE;
+        if (c < bc) { bc = c; found = true; out[1] = x1; out[2] = x2; out[3] = y1; out[4] = y2; }
+      }
+    }
+  }
+  out[0] = bc; out[5] = work;
+  return found;
+}
+
+// Exact DP over sub-rectangles (w, h) and piece counts k. Optionally adds 5-piece pinwheels.
+function guillotineDP(X, Y, n, lo, hi, M, opt) {
+  const S = X * Y, kLo = new Int32Array(S), kHi = new Int32Array(S), off = new Int32Array(S);
+  const id = (w, h) => (w - 1) * Y + h - 1;
+  let total = 0;
+  for (let w = 1; w <= X; w++) for (let h = 1; h <= Y; h++) {
+    const i = id(w, h), a = w * h;
+    const l = Math.max(1, Math.ceil(a / hi)), u = Math.min(n, Math.floor(a / lo));
+    kLo[i] = l; kHi[i] = u; off[i] = total - l;
+    if (u >= l) total += u - l + 1;
+  }
+  const root = id(X, Y);
+  if (kLo[root] > n || kHi[root] < n) return { cost: Infinity };
+  let work = 0;
+  for (let w = 1; w <= X; w++) for (let h = 1; h <= Y; h++) {
+    const i = id(w, h);
+    if (kHi[i] < kLo[i] || kHi[i] < 2) continue;
+    for (let x = 1; x <= w >> 1; x++) { const a = id(x, h), b = id(w - x, h); if (kHi[a] >= kLo[a] && kHi[b] >= kLo[b]) work += (kHi[a] - kLo[a] + 1) * (kHi[b] - kLo[b] + 1); }
+    for (let y = 1; y <= h >> 1; y++) { const a = id(w, y), b = id(w, h - y); if (kHi[a] >= kLo[a] && kHi[b] >= kLo[b]) work += (kHi[a] - kLo[a] + 1) * (kHi[b] - kLo[b] + 1); }
+  }
+  if (work > opt.budget || total > 3e6) return { tooLarge: true, work };
+  const cost = new Float64Array(total).fill(Infinity), choice = new Int32Array(total);
+  const pin = opt.pinwheel ? new Map() : null, pout = new Float64Array(6);
+  let pinWork = 0, pinTrunc = false;
+  for (let w = 1; w <= X; w++) for (let h = 1; h <= Y; h++) {
+    const i = id(w, h), l = kLo[i], u = kHi[i];
+    if (u < l) continue;
+    const o = off[i];
+    if (l === 1) { const a = w * h; cost[o + 1] = (w + h) * M + a * a; }
+    if (u < 2) continue;
+    for (let x = 1; x <= w >> 1; x++) {
+      const ia = id(x, h), ib = id(w - x, h), la = kLo[ia], ua = kHi[ia], lb = kLo[ib], ub = kHi[ib];
+      if (ua < la || ub < lb) continue;
+      const oa = off[ia], ob = off[ib];
+      for (let k1 = la; k1 <= ua; k1++) {
+        const c1 = cost[oa + k1];
+        if (c1 === Infinity) continue;
+        const k2a = Math.max(lb, l - k1), k2b = Math.min(ub, u - k1);
+        for (let k2 = k2a; k2 <= k2b; k2++) {
+          const c = c1 + cost[ob + k2], t = o + k1 + k2;
+          if (c < cost[t]) { cost[t] = c; choice[t] = 1 | (x << 2) | (k1 << 10); }
+        }
+      }
+    }
+    for (let y = 1; y <= h >> 1; y++) {
+      const ia = id(w, y), ib = id(w, h - y), la = kLo[ia], ua = kHi[ia], lb = kLo[ib], ub = kHi[ib];
+      if (ua < la || ub < lb) continue;
+      const oa = off[ia], ob = off[ib];
+      for (let k1 = la; k1 <= ua; k1++) {
+        const c1 = cost[oa + k1];
+        if (c1 === Infinity) continue;
+        const k2a = Math.max(lb, l - k1), k2b = Math.min(ub, u - k1);
+        for (let k2 = k2a; k2 <= k2b; k2++) {
+          const c = c1 + cost[ob + k2], t = o + k1 + k2;
+          if (c < cost[t]) { cost[t] = c; choice[t] = 2 | (y << 2) | (k1 << 10); }
+        }
+      }
+    }
+    // Pinwheel of 5 single pieces (see pinwheelBest), competing with the guillotine result for k = 5.
+    if (pin && !pinTrunc && l <= 5 && u >= 5 && w >= 3 && h >= 3) {
+      const t = o + 5;
+      if (pinwheelBest(w, h, lo, hi, M, cost[t], pout)) { cost[t] = pout[0]; choice[t] = 3; pin.set(t, [pout[1], pout[2], pout[3], pout[4]]); }
+      pinWork += pout[5];
+      if (pinWork > opt.pinBudget) pinTrunc = true;
+    }
+  }
+  const c = cost[off[root] + n];
+  if (c === Infinity) return { cost: Infinity, pinTrunc };
+  const rects = [], st = [[X, Y, n, 0, 0]];
+  let pins = 0;
+  while (st.length) {
+    const [w, h, k, x0, y0] = st.pop();
+    const t = off[id(w, h)] + k, ch = choice[t], type = ch & 3;
+    if (type === 0) rects.push([x0, y0, w, h]);
+    else if (type === 1) { const x = (ch >> 2) & 255, k1 = ch >> 10; st.push([x, h, k1, x0, y0], [w - x, h, k - k1, x0 + x, y0]); }
+    else if (type === 2) { const y = (ch >> 2) & 255, k1 = ch >> 10; st.push([w, y, k1, x0, y0], [w, h - y, k - k1, x0, y0 + y]); }
+    else {
+      pins++;
+      const [x1, x2, y1, y2] = pin.get(t);
+      rects.push([x0, y0, x2, y1], [x0 + x2, y0, w - x2, y2], [x0 + x1, y0 + y2, w - x1, h - y2], [x0, y0 + y1, x1, h - y1], [x0 + x1, y0 + y1, x2 - x1, y2 - y1]);
+    }
+  }
+  return { cost: c, rects, pins, pinTrunc, work };
+}
+
+// Lower bound: cheapest multiset of n allowed areas summing to X·Y, ignoring geometry.
+// rem(r, R) bounds the cost of covering R squares with r more pieces.
+function buildLB(X, Y, n, lo, hi, M) {
+  const XY = X * Y, span = hi - lo + 1, leaf = new Float64Array(span).fill(Infinity);
+  let minLeaf = Infinity;
+  for (let a = lo; a <= hi; a++) {
+    let s = Infinity;
+    for (let w = 1; w <= X && w <= a; w++) if (a % w === 0 && a / w <= Y && w + a / w < s) s = w + a / w;
+    if (s < Infinity) { leaf[a - lo] = s * M + a * a; if (leaf[a - lo] < minLeaf) minLeaf = leaf[a - lo]; }
+  }
+  const crude = {
+    exact: false, minLeaf,
+    root: (n * lo <= XY && XY <= n * hi && minLeaf < Infinity) ? n * minLeaf : Infinity,
+    rem: (r, R) => (R < r * lo || R > r * hi) ? Infinity : r * minLeaf,
+  };
+  if (crude.root === Infinity) { crude.exact = true; return crude; }
+  const rlo = new Int32Array(n + 1), rhi = new Int32Array(n + 1), roff = new Int32Array(n + 1);
+  let total = 0;
+  for (let r = 0; r <= n; r++) {
+    rlo[r] = Math.max(r * lo, XY - (n - r) * hi); rhi[r] = Math.min(r * hi, XY - (n - r) * lo);
+    roff[r] = total - rlo[r];
+    if (rhi[r] >= rlo[r]) total += rhi[r] - rlo[r] + 1;
+  }
+  if (total > 4e6 || total * span > 2e8) return crude;
+  const f = new Float64Array(total).fill(Infinity);
+  f[roff[0]] = 0;
+  for (let r = 1; r <= n; r++) {
+    if (rhi[r] < rlo[r]) continue;
+    const pl = rlo[r - 1], ph = rhi[r - 1], po = roff[r - 1];
+    for (let R = rlo[r]; R <= rhi[r]; R++) {
+      let b = Infinity;
+      const aMin = Math.max(lo, R - ph), aMax = Math.min(hi, R - pl);
+      for (let a = aMin; a <= aMax; a++) {
+        const l = leaf[a - lo];
+        if (l === Infinity) continue;
+        const c = f[po + R - a] + l;
+        if (c < b) b = c;
+      }
+      f[roff[r] + R] = b;
+    }
+  }
+  const rem = (r, R) => (R < rlo[r] || R > rhi[r]) ? Infinity : f[roff[r] + R];
+  return { exact: true, minLeaf, root: rem(n, XY), rem };
+}
+
+function mulberry32(a) {
+  return function () { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return (t ^ t >>> 14) | 0; };
+}
+
+// Branch & bound over all layouts: always fill the top-most, left-most empty square next
+// (the filled region is a skyline), prune with the lower bound and a transposition table.
+function searchExact(X, Y, n, lo, hi, M, lb, seedCost, timeMs, onProgress) {
+  const t0 = now(), deadline = t0 + timeMs, XY = X * Y;
+  let nodes = 0;
+  const out = (o) => Object.assign({ nodes, ms: now() - t0 }, o);
+  if (!(lb.root < Infinity)) return out({ complete: true, infeasible: true });
+  if (lb.root >= seedCost) return out({ complete: true, boundProof: true });
+  const sh = [];
+  for (let w = 1; w <= X; w++) for (let h = 1; h <= Y; h++) { const a = w * h; if (a >= lo && a <= hi) sh.push([w, h, a, (w + h) * M + a * a]); }
+  sh.sort((p, q) => p[3] - q[3]);
+  const NS = sh.length, SW = new Int32Array(NS), SH = new Int32Array(NS), SA = new Int32Array(NS), SC = new Float64Array(NS);
+  sh.forEach((s, i) => { SW[i] = s[0]; SH[i] = s[1]; SA[i] = s[2]; SC[i] = s[3]; });
+  const minW = new Int32Array(Y + 1).fill(1 << 30);
+  for (let i = 0; i < NS; i++) if (SW[i] < minW[SH[i]]) minW[SH[i]] = SW[i];
+  for (let hh = 1; hh <= Y; hh++) if (minW[hh - 1] < minW[hh]) minW[hh] = minW[hh - 1];
+  const rnd = mulberry32(0x9e3779b9), YY = Y + 1;
+  const Z1 = new Int32Array(X * YY), Z2 = new Int32Array(X * YY), P1 = new Int32Array(n + 1), P2 = new Int32Array(n + 1);
+  for (let i = 0; i < Z1.length; i++) { Z1[i] = rnd(); Z2[i] = rnd(); }
+  for (let i = 0; i <= n; i++) { P1[i] = rnd(); P2[i] = rnd(); }
+  const TSZ = 1 << 20, MASK = TSZ - 1, TA = new Int32Array(TSZ), TB = new Int32Array(TSZ), TV = new Float64Array(TSZ).fill(-1);
+  const sky = new Int32Array(X), place = new Int32Array(4 * n);
+  let h1 = 0, h2 = 0;
+  for (let i = 0; i < X; i++) { h1 ^= Z1[i * YY]; h2 ^= Z2[i * YY]; }
+  let best = seedCost, bestRects = null, aborted = false, lastP = t0;
+  const minLeaf = NS ? SC[0] : Infinity;
+  // A run of equal-height columns walled in on both sides must be entered by a piece that fits inside it.
+  function wellOK(col) {
+    const v = sky[col];
+    if (v >= Y) return true;
+    let L = col, R = col;
+    while (L > 0 && sky[L - 1] === v) L--;
+    if (L > 0 && sky[L - 1] < v) return true;
+    while (R < X - 1 && sky[R + 1] === v) R++;
+    if (R < X - 1 && sky[R + 1] < v) return true;
+    return minW[Y - v] <= R - L + 1;
+  }
+  function dfs(p, R, g) {
+    if (R === 0) {
+      if (p === n && g < best) {
+        best = g; bestRects = [];
+        for (let i = 0; i < n; i++) bestRects.push([place[4 * i], place[4 * i + 1], place[4 * i + 2], place[4 * i + 3]]);
+      }
+      return;
+    }
+    if (p >= n) return;
+    if (g + lb.rem(n - p, R) >= best) return;
+    if ((++nodes & 2047) === 0) {
+      const t = now();
+      if (t > deadline) { aborted = true; return; }
+      if (onProgress && t - lastP > 250) { lastP = t; onProgress(nodes, best, t - t0); }
+    }
+    const k1 = h1 ^ P1[p], k2 = h2 ^ P2[p], idx = k1 & MASK;
+    if (TV[idx] >= 0 && TA[idx] === k1 && TB[idx] === k2 && TV[idx] <= g) return;
+    TA[idx] = k1; TB[idx] = k2; TV[idx] = g;
+    let c = 0, y = sky[0];
+    for (let i = 1; i < X; i++) if (sky[i] < y) { y = sky[i]; c = i; }
+    let e = c + 1;
+    while (e < X && sky[e] === y) e++;
+    const run = e - c, avail = Y - y, restMin = (n - p - 1) * minLeaf;
+    for (let s = 0; s < NS; s++) {
+      const g2 = g + SC[s];
+      if (g2 + restMin >= best) break;
+      const w = SW[s], h = SH[s];
+      if (w > run || h > avail) continue;
+      const a = SA[s];
+      if (g2 + lb.rem(n - p - 1, R - a) >= best) continue;
+      for (let i = c; i < c + w; i++) { const o = i * YY; h1 ^= Z1[o + y] ^ Z1[o + y + h]; h2 ^= Z2[o + y] ^ Z2[o + y + h]; sky[i] = y + h; }
+      if (wellOK(c) && (c === 0 || wellOK(c - 1)) && (c + w >= X || wellOK(c + w))) {
+        const q = 4 * p;
+        place[q] = c; place[q + 1] = y; place[q + 2] = w; place[q + 3] = h;
+        dfs(p + 1, R - a, g2);
+      }
+      for (let i = c; i < c + w; i++) { const o = i * YY; h1 ^= Z1[o + y + h] ^ Z1[o + y]; h2 ^= Z2[o + y + h] ^ Z2[o + y]; sky[i] = y; }
+      if (aborted) return;
+    }
+  }
+  dfs(0, XY, 0);
+  return out({ complete: !aborted, improved: !!bestRects, rects: bestRects, cost: best });
+}
+
+function runSolve(p, post) {
+  const { X, Y, n, T } = p;
+  const { A, lo, hi } = allowedRange(X, Y, n, T);
+  const M = tieScale(X, Y, hi), lb = buildLB(X, Y, n, lo, hi, M);
+  const lbShared = lb.root < Infinity ? Math.floor(lb.root / M) - X - Y : null;
+  post({ type: 'meta', A, lo, hi, lbShared, lbExact: lb.exact });
+  const res = {}, name = (id) => ALGOS.find(a => a.id === id).name;
+  const send = (id, r) => { res[id] = r; post({ type: 'result', algo: id, res: r }); };
+  const run = (id, fn) => {
+    post({ type: 'progress', algo: id });
+    const t = now();
+    let r;
+    try { r = fn() || { error: 'No layout found' }; } catch (e) { r = { error: 'Failed: ' + (e && e.message || e) }; }
+    r.ms = now() - t;
+    send(id, r);
+  };
+  const tooLarge = (g) => 'Skipped: too large (~' + (g.work / 1e6).toFixed(0) + 'M steps). Reduce size, n or tolerance.';
+  run('strips', () => Object.assign(solveStrips(X, Y, n), { status: 'Fixed pattern' }));
+  run('grid', () => Object.assign(solveGrid(X, Y, n, lo, hi, A), { status: 'Fixed pattern' }));
+  run('bisect', () => Object.assign(solveBisect(X, Y, n), { status: 'Heuristic' }));
+  run('squarify', () => Object.assign(solveSquarify(X, Y, n), { status: 'Heuristic' }));
+  run('columns', () => { const r = solveColumns(X, Y, n, lo, hi, M); if (r.rects) r.status = 'Optimal among column layouts'; return r; });
+  run('guillotine', () => {
+    const g = guillotineDP(X, Y, n, lo, hi, M, { pinwheel: false, budget: DP_BUDGET });
+    if (g.tooLarge) return { error: tooLarge(g) };
+    if (!(g.cost < Infinity)) return { error: 'No straight-cut layout fits this tolerance' };
+    return { rects: g.rects, status: 'Optimal among guillotine layouts' };
+  });
+  run('pinwheel', () => {
+    const g = guillotineDP(X, Y, n, lo, hi, M, { pinwheel: true, budget: DP_BUDGET, pinBudget: PIN_BUDGET });
+    if (g.tooLarge) return { error: tooLarge(g) };
+    if (!(g.cost < Infinity)) return { error: 'No guillotine or pinwheel layout fits this tolerance' };
+    return {
+      rects: g.rects,
+      status: g.pinTrunc ? 'Guillotine-optimal (pinwheel search cut short)' : 'Optimal among guillotine + pinwheel layouts',
+      note: g.pins ? g.pins + (g.pins === 1 ? ' pinwheel' : ' pinwheels') : 'no pinwheel needed',
+    };
+  });
+  if (!(p.searchMs > 0)) { send('search', { error: 'Off (enable it in the settings)', ms: 0 }); return; }
+  run('search', () => {
+    let seed = null, seedCost = Infinity, seedId = null;
+    for (const id of ['pinwheel', 'guillotine', 'columns', 'squarify', 'bisect', 'grid', 'strips']) {
+      const r = res[id];
+      if (!r || !r.rects || !withinRange(r.rects, lo, hi)) continue;
+      const c = layoutCost(r.rects, M);
+      if (c < seedCost) { seedCost = c; seed = r.rects; seedId = id; }
+    }
+    const s = searchExact(X, Y, n, lo, hi, M, lb, seedCost, p.searchMs, (nodes, best, ms) =>
+      post({ type: 'searchProgress', nodes, ms, best: best < Infinity ? Math.floor(best / M) - X - Y : null }));
+    const stats = { nodes: s.nodes };
+    if (s.infeasible) return Object.assign(stats, { error: 'Proven: no layout can satisfy this tolerance', infeasible: true });
+    if (s.boundProof) return Object.assign(stats, { rects: seed, proven: true, status: 'Proven optimal (equals lower bound)', note: 'same as ' + name(seedId) });
+    if (s.improved) return Object.assign(stats, { rects: s.rects, proven: s.complete, status: s.complete ? 'Proven optimal' : 'Best found in time (not proven)', note: seed ? 'beats ' + name(seedId) : 'only layout found' });
+    if (s.complete) return seed
+      ? Object.assign(stats, { rects: seed, proven: true, status: 'Proven optimal (searched every layout)', note: 'same as ' + name(seedId) })
+      : Object.assign(stats, { error: 'Proven: no layout fits this tolerance', infeasible: true });
+    return seed
+      ? Object.assign(stats, { rects: seed, status: 'Time limit: nothing better found (not proven)', note: 'same as ' + name(seedId) })
+      : Object.assign(stats, { error: 'No layout found within the time limit' });
+  });
+}
+
+function runChart(p, post) {
+  const { X, Y, n } = p, Tmax = Math.min(50, Math.max(30, Math.ceil(p.T) + 10)), t0 = now();
+  post({ type: 'chartMeta', Tmax });
+  let prevKey = '', prev = null;
+  for (let T = 0; T <= Tmax; T++) {
+    const { lo, hi } = allowedRange(X, Y, n, T), key = lo + ',' + hi;
+    let pt;
+    if (key === prevKey) pt = Object.assign({}, prev, { T });
+    else {
+      const M = tieScale(X, Y, hi), lb = buildLB(X, Y, n, lo, hi, M);
+      pt = { T, lo, hi, lb: null, best: null, cols: null, skipped: false };
+      if (lb.root < Infinity) {
+        pt.lb = Math.floor(lb.root / M) - X - Y;
+        const g = guillotineDP(X, Y, n, lo, hi, M, { pinwheel: true, budget: CHART_BUDGET, pinBudget: CHART_PIN_BUDGET });
+        if (g.tooLarge) pt.skipped = true;
+        else if (g.cost < Infinity) pt.best = Math.floor(g.cost / M) - X - Y;
+        const c = solveColumns(X, Y, n, lo, hi, M, CHART_COL_BUDGET);
+        if (c.rects) pt.cols = Math.floor(c.cost / M) - X - Y;
+      }
+      prevKey = key; prev = pt;
+    }
+    post({ type: 'chart', pt });
+    if (now() - t0 > 25000 && T < Tmax) { post({ type: 'chartPartial', T }); break; }
+  }
+}
+
+if (typeof window === 'undefined' && typeof self !== 'undefined' && typeof postMessage === 'function') {
+  self.onmessage = (ev) => {
+    const { kind, job, params } = ev.data;
+    const post = (m) => { m.job = job; postMessage(m); };
+    try { (kind === 'chart' ? runChart : runSolve)(params, post); post({ type: 'done', kind }); }
+    catch (e) { post({ type: 'fatal', kind, error: String(e && e.stack || e) }); }
+  };
+}
+</script>
+
+<script>
+(() => {
+'use strict';
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ALGO = Object.fromEntries(ALGOS.map(a => [a.id, a]));
+const SEARCH_OPTS = [0, 1, 3, 10, 30];
+
+const PRESETS = [
+  { id: 'default', name: 'Starter', X: 24, Y: 16, n: 12, T: 10,
+    note: '24 × 16 squares into 12 pieces at ±10 %. The plain 4 × 3 grid needs 104. The guillotine DP finds 98, which equals the lower bound, so it is proven optimal. The treemap looks shorter (96) only because it breaks the ±10 % size limit.' },
+  { id: 'grid', name: 'Perfect grid', X: 12, Y: 12, n: 9, T: 0,
+    note: '12 × 12 into 9 equal pieces: the plain 3 × 3 grid already reaches the lower bound (48), so every exact method agrees. Strips need twice as much (96).' },
+  { id: 'prime', name: 'Prime n', X: 14, Y: 10, n: 7, T: 5,
+    note: 'n = 7 is prime, so the uniform grid falls back to 7 strips (60). The DPs find 42: three columns of two 4 × 5 pieces plus one 2 × 10 strip. The exhaustive search proves nothing shorter exists. Bisection and the treemap reach 40 only by breaking the ±5 % size limit.' },
+  { id: 'pinwheel', name: 'Pinwheel only', X: 11, Y: 11, n: 5, T: 0,
+    note: '11 × 11 into 5 with no tolerance (areas 24 or 25): no straight-cut layout exists at all. The only solution is a pinwheel of four 8 × 3 pieces around a 5 × 5 centre (shared edges 32). No straight cut can separate it.' },
+  { id: 'impossible', name: 'No exact split', X: 10, Y: 10, n: 3, T: 0,
+    note: '10 × 10 into 3 at ±0 %: pieces would need 33 or 34 squares, but every such shape is too long for a 10 × 10 rectangle (33 = 3 × 11, 34 = 2 × 17). The trade-off chart shows the smallest tolerance that works (±10 %).' },
+  { id: 'corridor', name: 'Corridor', X: 40, Y: 4, n: 10, T: 0,
+    note: 'A long, thin 40 × 4 rectangle into 10: plain strips of 4 × 4 squares are optimal and every method agrees. Clever algorithms only pay off when the shape leaves room for them.' },
+  { id: 'tolerance', name: 'Tolerance pays off', X: 17, Y: 11, n: 6, T: 6,
+    note: '17 × 11 into 6 (average 31.2 squares). At ±6 % only layouts that need non-straight cuts fit, and the best needs 47. At ±14 % a straight-cut layout with 43 appears, and at ±20 % the shared edges drop to 39, the lower bound. The trade-off chart shows the whole curve; click it to try another tolerance.' },
+  { id: 'search', name: 'Search beats DP', X: 16, Y: 13, n: 8, T: 5,
+    note: '16 × 13 into 8 at ±5 %: every straight-cut layout that respects the size limit is just strips (91). The exhaustive search finds an interlocking layout with only 75 and proves it optimal. Bisection gets 55 only by breaking the limit.' },
+  { id: 'interlock', name: 'Interlocking', X: 13, Y: 8, n: 11, T: 0,
+    note: '13 × 8 into 11 with no tolerance (areas 9 or 10): the best straight-cut layout needs 62. An interlocking layout found by the exhaustive search needs only 50, which equals the lower bound.' },
+  { id: 'big', name: 'Large field', X: 73, Y: 47, n: 57, T: 10,
+    note: '73 × 47 squares into 57 pieces. The guillotine DP finds 767 in well under a second, just 2 above the lower bound of 765. The exhaustive search cannot close that gap within the time limit, so optimality stays unproven.' },
+];
+
+const state = { X: 24, Y: 16, n: 12, T: 10, s: 3, cells: true, edges: true, labels: true, view: 'best', hover: -1, preset: 'default' };
+let job = null, seq = 0, workers = [], workerURL = null, restartTimer = 0, renderQueued = false;
+const memo = {};
+
+const fmt = (v, d = 1) => (Math.round(v * 10 ** d) / 10 ** d).toLocaleString('en-US');
+const fmtSigned = (v, d = 1) => { const r = Math.round(v * 10 ** d) / 10 ** d; return (r > 0 ? '+' : r < 0 ? '−' : '±') + Math.abs(r).toLocaleString('en-US'); };
+const fmtMs = (ms) => ms < 1 ? '<1 ms' : ms < 1000 ? Math.round(ms) + ' ms' : fmt(ms / 1000, 1) + ' s';
+const fmtNodes = (k) => k >= 1e6 ? fmt(k / 1e6, 1) + 'M' : k >= 1e3 ? Math.round(k / 1e3) + 'k' : String(k);
+const dark = () => matchMedia('(prefers-color-scheme: dark)').matches;
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function pieceColor(i, dk) { const h = ((i * 137.508) + 205) % 360; return dk ? `hsl(${h.toFixed(1)} 40% 34%)` : `hsl(${h.toFixed(1)} 75% 83%)`; }
+
+/* ---------- URL state ---------- */
+function readHash() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  const num = (k, d, a, b) => { const v = parseInt(h.get(k), 10); return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : d; };
+  if (![...h.keys()].length) return;
+  state.X = num('x', state.X, 1, 100); state.Y = num('y', state.Y, 1, 100);
+  state.n = num('n', state.n, 1, Math.min(400, state.X * state.Y)); state.T = num('t', state.T, 0, 50);
+  const s = num('s', state.s, 0, 30); state.s = SEARCH_OPTS.includes(s) ? s : 3;
+  const p = PRESETS.find(q => q.X === state.X && q.Y === state.Y && q.n === state.n && q.T === state.T);
+  state.preset = p ? p.id : null;
+}
+function writeHash() { history.replaceState(null, '', `#x=${state.X}&y=${state.Y}&n=${state.n}&t=${state.T}&s=${state.s}`); }
+
+/* ---------- controls ---------- */
+const ctl = { X: ['#xr', '#xn'], Y: ['#yr', '#yn'], n: ['#nr', '#nn'], T: ['#tr', '#tn'] };
+const maxN = () => Math.min(400, state.X * state.Y);
+const limits = (k) => k === 'X' || k === 'Y' ? [1, 100] : k === 'n' ? [1, maxN()] : [0, 50];
+function setParam(key, v) {
+  const [a, b] = limits(key);
+  v = Math.min(b, Math.max(a, Math.round(v)));
+  if (!Number.isFinite(v) || state[key] === v) { syncControls(); return; }
+  state[key] = v;
+  if (key !== 'n') state.n = Math.min(state.n, maxN());
+  state.preset = null;
+  syncControls();
+  queueRestart();
+}
+function syncControls() {
+  for (const key of Object.keys(ctl)) {
+    const range = $(ctl[key][0]), num = $(ctl[key][1]), [a, b] = limits(key);
+    range.min = num.min = a; range.max = num.max = b;
+    range.value = state[key];
+    if (document.activeElement !== num) num.value = state[key];
+  }
+  const r = allowedRange(state.X, state.Y, state.n, state.T);
+  $('#sizeHint').textContent = `${(state.X * state.Y).toLocaleString('en-US')} squares · ${3 * state.X} × ${3 * state.Y} cells`;
+  $('#rangeHint').innerHTML = `Allowed piece area: <b>${r.lo}–${r.hi}</b> squares (average ${fmt(r.A, 2)})`;
+  $('#searchSel').value = String(state.s);
+  $('#optCells').checked = state.cells; $('#optEdges').checked = state.edges; $('#optLabels').checked = state.labels;
+  document.querySelectorAll('.preset').forEach(b => b.classList.toggle('active', b.dataset.id === state.preset));
+}
+function bindControls() {
+  for (const key of Object.keys(ctl)) {
+    const range = $(ctl[key][0]), num = $(ctl[key][1]);
+    range.addEventListener('input', () => setParam(key, +range.value));
+    num.addEventListener('input', () => { const v = parseInt(num.value, 10), [a, b] = limits(key); if (Number.isFinite(v) && v >= a && v <= b) setParam(key, v); });
+    num.addEventListener('change', () => { const v = parseInt(num.value, 10); setParam(key, Number.isFinite(v) ? v : state[key]); num.value = state[key]; });
+  }
+  $('#searchSel').addEventListener('change', (e) => { state.s = +e.target.value; queueRestart(); });
+  $('#optCells').addEventListener('change', (e) => { state.cells = e.target.checked; scheduleRender(); });
+  $('#optEdges').addEventListener('change', (e) => { state.edges = e.target.checked; scheduleRender(); });
+  $('#optLabels').addEventListener('change', (e) => { state.labels = e.target.checked; scheduleRender(); });
+  $('#presets').innerHTML = PRESETS.map(p => `<button class="preset" data-id="${p.id}"><b>${esc(p.name)}</b><span>${p.X} × ${p.Y}, n = ${p.n}, ±${p.T} %</span></button>`).join('');
+  $('#presets').addEventListener('click', (e) => {
+    const b = e.target.closest('.preset');
+    if (!b) return;
+    const p = PRESETS.find(q => q.id === b.dataset.id);
+    Object.assign(state, { X: p.X, Y: p.Y, n: p.n, T: p.T, preset: p.id, view: 'best' });
+    syncControls();
+    clearTimeout(restartTimer);
+    startJob();
+  });
+  $('#viewSel').addEventListener('change', (e) => { state.view = e.target.value; scheduleRender(); });
+  $('#cmpBody').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr.clickable');
+    if (tr) { state.view = tr.dataset.algo; scheduleRender(); }
+  });
+  $('#cmpBody').addEventListener('keydown', (e) => {
+    const tr = e.target.closest('tr.clickable');
+    if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); state.view = tr.dataset.algo; scheduleRender(); }
+  });
+  const cv = $('#after');
+  cv.addEventListener('mousemove', (e) => {
+    const g = cv._g;
+    if (!g || !g.layout) return;
+    const rc = cv.getBoundingClientRect(), mx = e.clientX - rc.left, my = e.clientY - rc.top;
+    const cx = Math.floor(mx / g.s), cy = Math.floor(my / g.s);
+    if (cx < 0 || cy < 0 || cx >= g.X || cy >= g.Y) { setHover(-1); return; }
+    const i = g.layout.ev.labels[cy * g.X + cx];
+    setHover(i);
+    const tip = $('#tip'), r = g.layout.rects[i], a = r[2] * r[3], A = job.A;
+    tip.innerHTML = `<b>#${i + 1}</b> · ${r[2]} × ${r[3]} squares (${3 * r[2]} × ${3 * r[3]} cells) · area <b>${a}</b> <span class="${a < job.lo || a > job.hi ? 'bad' : 'muted'}">(${fmtSigned(100 * (a - A) / A, 1)} %)</span>`;
+    tip.style.display = 'block';
+    const wrap = cv.parentElement.getBoundingClientRect();
+    let left = e.clientX - wrap.left + 14, top = e.clientY - wrap.top + 14;
+    if (left + tip.offsetWidth > wrap.width) left = Math.max(0, e.clientX - wrap.left - tip.offsetWidth - 10);
+    tip.style.left = left + 'px'; tip.style.top = top + 'px';
+  });
+  cv.addEventListener('mouseleave', () => { setHover(-1); $('#tip').style.display = 'none'; });
+  for (const sel of ['#areaChart', '#piecesBody']) {
+    const el = $(sel);
+    el.addEventListener('mouseover', (e) => { const t = e.target.closest('[data-i]'); if (t) setHover(+t.dataset.i); });
+    el.addEventListener('mouseleave', () => setHover(-1));
+  }
+  $('#tradeoff').addEventListener('click', (e) => {
+    const svg = $('#tradeoff svg');
+    if (!svg || !svg._sx) return;
+    const rc = svg.getBoundingClientRect(), t = Math.round(svg._sx(e.clientX - rc.left));
+    if (t >= 0 && t <= 50) setParam('T', t);
+  });
+  addEventListener('resize', scheduleRender);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', scheduleRender);
+}
+function setHover(i) {
+  if (state.hover === i) return;
+  state.hover = i;
+  drawAfter();
+  document.querySelectorAll('.hl').forEach(el => el.classList.remove('hl'));
+  if (i >= 0) document.querySelectorAll(`[data-i="${i}"]`).forEach(el => el.classList.add('hl'));
+}
+
+/* ---------- jobs ---------- */
+function queueRestart() {
+  clearTimeout(restartTimer);
+  if (job) job.stale = true;
+  scheduleRender();
+  restartTimer = setTimeout(startJob, 250);
+}
+function makeWorker() {
+  if (!workerURL) workerURL = URL.createObjectURL(new Blob([document.getElementById('core').textContent], { type: 'text/javascript' }));
+  return new Worker(workerURL);
+}
+function startJob() {
+  workers.forEach(w => w.terminate());
+  workers = [];
+  const params = { X: state.X, Y: state.Y, n: state.n, T: state.T, searchMs: state.s * 1000 };
+  const r = allowedRange(params.X, params.Y, params.n, params.T);
+  job = { id: ++seq, params, A: r.A, lo: r.lo, hi: r.hi, results: {}, evals: {}, current: null, solveDone: false, chart: [], chartTmax: 30, chartDone: false, chartPartial: false, t0: performance.now(), meta: null, fatal: null, stale: false, searchProg: null };
+  state.hover = -1;
+  writeHash();
+  const id = job.id;
+  try {
+    const ws = makeWorker(), wc = makeWorker();
+    workers = [ws, wc];
+    ws.onmessage = wc.onmessage = (e) => onMsg(id, e.data);
+    ws.onerror = (e) => onMsg(id, { type: 'fatal', kind: 'solve', error: e.message || 'worker error' });
+    wc.onerror = () => onMsg(id, { type: 'done', kind: 'chart' });
+    ws.postMessage({ kind: 'solve', job: id, params });
+    wc.postMessage({ kind: 'chart', job: id, params });
+  } catch (err) {
+    // No Web Workers (e.g. some file:// setups): compute on the main thread with a short search.
+    setTimeout(() => {
+      const post = (m) => onMsg(id, m);
+      try { runSolve(Object.assign({}, params, { searchMs: Math.min(params.searchMs, 1000) }), post); post({ type: 'done', kind: 'solve' }); }
+      catch (e) { post({ type: 'fatal', kind: 'solve', error: String(e) }); }
+      post({ type: 'chartMeta', Tmax: 0 }); post({ type: 'done', kind: 'chart', note: 'needs Web Workers' });
+    }, 30);
+  }
+  scheduleRender();
+}
+function onMsg(id, m) {
+  if (!job || id !== job.id) return;
+  switch (m.type) {
+    case 'meta': job.meta = m; break;
+    case 'progress': job.current = m.algo; job.searchProg = null; break;
+    case 'searchProgress': job.searchProg = m; break;
+    case 'result': {
+      const r = m.res;
+      job.results[m.algo] = r;
+      if (r.rects) {
+        r.rects.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+        job.evals[m.algo] = evaluate(job.params.X, job.params.Y, r.rects, job.lo, job.hi, job.A);
+      }
+      break;
+    }
+    case 'chartMeta': job.chartTmax = m.Tmax; break;
+    case 'chart': job.chart.push(m.pt); break;
+    case 'chartPartial': job.chartPartial = true; break;
+    case 'done':
+      if (m.kind === 'solve') { job.solveDone = true; job.current = null; job.ms = performance.now() - job.t0; }
+      else { job.chartDone = true; job.chartNote = m.note || null; }
+      break;
+    case 'fatal':
+      if (m.kind === 'chart') job.chartDone = true;
+      else { job.fatal = m.error; job.solveDone = true; job.current = null; }
+      break;
+  }
+  scheduleRender();
+}
+
+/* ---------- selection ---------- */
+function bestAlgo() {
+  if (!job) return null;
+  let best = null, bk = null;
+  for (const a of ALGOS) {
+    const ev = job.evals[a.id];
+    if (!ev || !ev.ok) continue;
+    const key = ev.within ? [0, ev.shared, ev.ssd] : [1, ev.maxDev, ev.shared];
+    if (!bk || cmpKey(key, bk) < 0) { best = a.id; bk = key; }
+  }
+  return best;
+}
+function selectedAlgo() {
+  if (!job) return null;
+  if (state.view !== 'best' && job.evals[state.view] && job.evals[state.view].ok) return state.view;
+  return bestAlgo();
+}
+function proofState() {
+  if (!job) return null;
+  let bs = null;
+  for (const a of ALGOS) { const ev = job.evals[a.id]; if (ev && ev.ok && ev.within && (bs === null || ev.shared < bs)) bs = ev.shared; }
+  if (bs === null) return null;
+  if (job.meta && job.meta.lbShared === bs) return { best: bs, proven: true, how: 'equals the lower bound' };
+  const s = job.results.search;
+  if (s && s.proven) return { best: bs, proven: true, how: 'exhaustive search checked every layout' };
+  return { best: bs, proven: false };
+}
+
+/* ---------- drawing ---------- */
+function scheduleRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; render(); });
+}
+function render() {
+  renderStatus(); drawBefore(); drawAfter(); renderViewSel(); renderCards(); renderTable(); renderPieces(); renderTradeoff(); renderCallout();
+}
+function colors() {
+  return { sq: cssVar('--sq'), sqLine: cssVar('--sq-line'), cell: cssVar('--cell-line'), ink: cssVar('--ink'), edge: cssVar('--edge'), bad: cssVar('--bad'), panel: cssVar('--panel') };
+}
+function hatch(ctx, color) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 8;
+  const g = c.getContext('2d');
+  g.strokeStyle = color; g.globalAlpha = .55; g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(-2, 10); g.lineTo(10, -2); g.moveTo(-2, 2); g.lineTo(2, -2); g.moveTo(6, 10); g.lineTo(10, 6); g.stroke();
+  return ctx.createPattern(c, 'repeat');
+}
+function drawGrid(cv, X, Y, layout) {
+  const wrap = cv.parentElement, availW = Math.max(100, wrap.clientWidth), availH = Math.max(200, Math.min(540, innerHeight * 0.62));
+  let s = Math.min(availW / X, availH / Y);
+  if (s >= 3) s = Math.floor(s);
+  const W = Math.max(1, Math.round(s * X)), H = Math.max(1, Math.round(s * Y)), dpr = devicePixelRatio || 1;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cv._g = { s, X, Y, layout };
+  const C = colors(), dk = dark();
+  ctx.fillStyle = C.sq;
+  ctx.fillRect(0, 0, W, H);
+  if (layout) {
+    layout.rects.forEach((r, i) => { ctx.fillStyle = pieceColor(i, dk); ctx.fillRect(r[0] * s, r[1] * s, r[2] * s, r[3] * s); });
+    const pat = hatch(ctx, C.bad);
+    ctx.fillStyle = pat;
+    layout.rects.forEach(r => { const a = r[2] * r[3]; if (a < layout.lo || a > layout.hi) ctx.fillRect(r[0] * s, r[1] * s, r[2] * s, r[3] * s); });
+  }
+  const snap = (v) => Math.round(v * dpr) / dpr + 0.5 / dpr;
+  if (state.cells && s / 3 >= 3) {
+    ctx.beginPath();
+    for (let i = 0; i < X; i++) for (const f of [1, 2]) { const x = snap((i + f / 3) * s); ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let j = 0; j < Y; j++) for (const f of [1, 2]) { const y = snap((j + f / 3) * s); ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.strokeStyle = C.cell; ctx.lineWidth = 1 / dpr; ctx.stroke();
+  }
+  if (s >= 4) {
+    ctx.beginPath();
+    for (let i = 1; i < X; i++) { const x = snap(i * s); ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let j = 1; j < Y; j++) { const y = snap(j * s); ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.strokeStyle = C.sqLine; ctx.lineWidth = Math.max(1, dpr >= 2 ? 1 : 1) / dpr * (s >= 10 ? 2 : 1); ctx.stroke();
+  }
+  if (layout) {
+    const lab = layout.ev.labels;
+    ctx.beginPath();
+    for (let i = 1; i < X; i++) {
+      let start = -1;
+      for (let j = 0; j <= Y; j++) {
+        const diff = j < Y && lab[j * X + i - 1] !== lab[j * X + i];
+        if (diff && start < 0) start = j;
+        if (!diff && start >= 0) { ctx.moveTo(i * s, start * s); ctx.lineTo(i * s, j * s); start = -1; }
+      }
+    }
+    for (let j = 1; j < Y; j++) {
+      let start = -1;
+      for (let i = 0; i <= X; i++) {
+        const diff = i < X && lab[(j - 1) * X + i] !== lab[j * X + i];
+        if (diff && start < 0) start = i;
+        if (!diff && start >= 0) { ctx.moveTo(start * s, j * s); ctx.lineTo(i * s, j * s); start = -1; }
+      }
+    }
+    ctx.lineCap = 'square';
+    ctx.strokeStyle = state.edges ? C.edge : C.ink;
+    ctx.lineWidth = state.edges ? Math.max(1.5, Math.min(3.5, s / 4)) : Math.max(1, Math.min(2, s / 6));
+    ctx.stroke();
+    if (state.labels) {
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.ink;
+      layout.rects.forEach(r => {
+        const pw = r[2] * s, ph = r[3] * s, fs = Math.min(16, Math.floor(Math.min(pw, ph * 1.4) * 0.3));
+        if (fs < 8) return;
+        const cx = r[0] * s + pw / 2, cy = r[1] * s + ph / 2, two = ph > fs * 3.1 && pw > fs * 3;
+        ctx.font = `600 ${fs}px system-ui, sans-serif`;
+        ctx.fillText(String(r[2] * r[3]), cx, two ? cy - fs * 0.45 : cy);
+        if (two) { ctx.font = `${Math.max(8, fs - 4)}px system-ui, sans-serif`; ctx.globalAlpha = .7; ctx.fillText(`${r[2]}×${r[3]}`, cx, cy + fs * 0.65); ctx.globalAlpha = 1; }
+      });
+    }
+    const hv = layout.hover;
+    if (hv >= 0 && hv < layout.rects.length) {
+      const r = layout.rects[hv];
+      ctx.strokeStyle = C.ink; ctx.lineWidth = 3;
+      ctx.strokeRect(r[0] * s + 1.5, r[1] * s + 1.5, r[2] * s - 3, r[3] * s - 3);
+    }
+  }
+  ctx.strokeStyle = C.ink; ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, W - 2, H - 2);
+}
+function drawBefore() {
+  const r = allowedRange(state.X, state.Y, state.n, state.T);
+  drawGrid($('#before'), state.X, state.Y, null);
+  $('#beforeCap').innerHTML = `<b>${state.X} × ${state.Y}</b> squares = ${(state.X * state.Y).toLocaleString('en-US')} squares (${3 * state.X} × ${3 * state.Y} cells) · target <b>${state.n}</b> pieces of about ${fmt(r.A, 1)} squares`;
+}
+function drawAfter() {
+  const cv = $('#after'), cap = $('#afterCap');
+  $('#afterFig').classList.toggle('stale', !job || job.stale);
+  if (!job) { drawGrid(cv, state.X, state.Y, null); cap.textContent = ''; return; }
+  const { X, Y } = job.params, id = selectedAlgo();
+  if (!id) {
+    drawGrid(cv, X, Y, null);
+    cap.innerHTML = job.solveDone ? '<span class="bad">No valid layout found</span>' : '<span class="spin"></span> computing…';
+    return;
+  }
+  const r = job.results[id], ev = job.evals[id];
+  drawGrid(cv, X, Y, { rects: r.rects, ev, lo: job.lo, hi: job.hi, hover: state.hover });
+  cap.innerHTML = `<b>${esc(ALGO[id].name)}</b>${state.view === 'best' ? ' <span class="chip">best</span>' : ''} · ${r.rects.length} pieces · shared edges <b>${ev.shared}</b> squares (${ev.shared * 3} cells)`;
+}
+function renderViewSel() {
+  const sel = $('#viewSel'), b = bestAlgo();
+  const key = job ? [job.id, state.view, b, ALGOS.map(a => job.evals[a.id] ? 1 : 0).join('')].join(':') : '';
+  if (memo.viewSel === key) return;
+  memo.viewSel = key;
+  sel.innerHTML = `<option value="best">Best result${b ? ' (' + esc(ALGO[b].name) + ')' : ''}</option>` +
+    ALGOS.map(a => `<option value="${a.id}" ${job && job.evals[a.id] && job.evals[a.id].ok ? '' : 'disabled'}>${esc(a.name)}</option>`).join('');
+  sel.value = job && state.view !== 'best' && job.evals[state.view] ? state.view : 'best';
+}
+
+/* ---------- panels ---------- */
+function renderStatus() {
+  const el = $('#status');
+  if (!job) { el.textContent = ''; return; }
+  if (job.stale) { el.innerHTML = '<span class="spin"></span> Settings changed, recomputing…'; return; }
+  if (job.fatal) { el.innerHTML = `<span class="bad">Error: ${esc(job.fatal.split('\n')[0])}</span>`; return; }
+  let s;
+  if (!job.solveDone) {
+    const a = job.current ? ALGO[job.current].name : 'starting';
+    const sp = job.current === 'search' && job.searchProg ? ` · ${fmtMs(job.searchProg.ms)} · ${fmtNodes(job.searchProg.nodes)} nodes` : '';
+    s = `<span class="spin"></span> Running ${esc(a)}${sp}`;
+  } else s = `Done in ${fmtMs(job.ms)}`;
+  if (!job.chartDone) s += ` · trade-off chart ${job.chart.length}/${job.chartTmax + 1}`;
+  el.innerHTML = s;
+}
+function renderCards() {
+  const el = $('#cards'), id = job && selectedAlgo();
+  const card = (k, v, d) => `<div class="panel card"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  if (!id) { el.innerHTML = card('Shared edges', '–', '') + card('Piece areas', '–', '') + card('Layout', '–', '') + card('Algorithm', '–', ''); return; }
+  const ev = job.evals[id], r = job.results[id], meta = job.meta || {}, ps = proofState();
+  let opt = '';
+  if (ev.within && ps && ps.proven && ev.shared === ps.best) opt = `<span class="chip ok">✓ proven minimum</span> <span title="${esc(ps.how)}">(${esc(ps.how)})</span>`;
+  else if (meta.lbShared != null) opt = `lower bound <b>≥ ${meta.lbShared}</b>${ev.within ? ` · gap ${ev.shared - meta.lbShared}` : ''}`;
+  else if (meta.lbExact) opt = '<span class="bad">no layout can satisfy ±' + job.params.T + ' %</span>';
+  const within = ev.within ? '<span class="ok">all within tolerance</span>' : `<span class="bad">${ev.areas.filter(a => a < job.lo || a > job.hi).length} outside ${job.lo}–${job.hi}</span>`;
+  el.innerHTML =
+    card('Shared edges', `${ev.shared} <small>squares</small>`, `= ${ev.shared * 3} cells · ${opt}`) +
+    card('Piece areas', `${ev.minA}–${ev.maxA} <small>squares</small>`, `average ${fmt(job.A, 2)} · max deviation <b>${fmt(ev.maxDevPct, 1)} %</b> · σ ${fmt(ev.std, 2)}<br>${within}`) +
+    card('Layout', `${ev.areas.length} <small>pieces</small>`, `${ev.pairs} neighbouring pairs · ${ev.guillotine ? 'straight cuts only' : '<b>not</b> possible with straight cuts alone'}`) +
+    card('Algorithm', esc(ALGO[id].name), `${esc(r.status || '')}${r.note ? ' · ' + esc(r.note) : ''} · ${fmtMs(r.ms)}`);
+}
+function renderTable() {
+  const tb = $('#cmpBody');
+  if (!job) { tb.innerHTML = ''; return; }
+  const best = bestAlgo(), sel = selectedAlgo(), ps = proofState(), bs = ps ? ps.best : null;
+  tb.innerHTML = ALGOS.map(a => {
+    const r = job.results[a.id], ev = job.evals[a.id], ok = ev && ev.ok;
+    let cells;
+    if (!r) {
+      const running = job.current === a.id && !job.solveDone;
+      const sp = running && a.id === 'search' && job.searchProg ? ` ${fmtMs(job.searchProg.ms)} · ${fmtNodes(job.searchProg.nodes)} nodes${job.searchProg.best != null ? ' · best ' + job.searchProg.best : ''}` : '';
+      cells = `<td colspan="7" class="muted">${running ? '<span class="spin"></span> running…' + sp : job.solveDone ? '–' : 'waiting…'}</td><td></td><td></td>`;
+    } else if (!ok) {
+      cells = `<td colspan="7" class="muted">${esc(r.error || (ev && ev.error) || 'no layout')}</td><td class="num">${fmtMs(r.ms)}</td><td class="status">${r.nodes ? fmtNodes(r.nodes) + ' nodes' : ''}</td>`;
+    } else {
+      const vs = ev.within && bs != null ? (ev.shared === bs ? '<span class="ok">best</span>' : `<span class="warn">+${ev.shared - bs}</span>`) : '–';
+      const status = esc(r.status || '') + (r.note ? ` <span class="muted">· ${esc(r.note)}</span>` : '') + (r.nodes ? ` <span class="muted">· ${fmtNodes(r.nodes)} nodes</span>` : '');
+      cells = `<td class="num"><b>${ev.shared}</b></td><td class="num">${ev.shared * 3}</td><td class="num">${vs}</td><td class="num">${ev.minA}–${ev.maxA}</td><td class="num">${fmt(ev.maxDevPct, 1)} %</td>` +
+        `<td class="c">${ev.within ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>'}</td><td class="c">${ev.guillotine ? '✓' : '<span class="warn" title="Needs a non-straight-cut layout">✗</span>'}</td>` +
+        `<td class="num">${fmtMs(r.ms)}</td><td class="status">${status}</td>`;
+    }
+    return `<tr data-algo="${a.id}" class="${ok ? 'clickable' : ''} ${ok && sel === a.id ? 'selected' : ''}" ${ok ? 'tabindex="0"' : ''}><td><div class="aname">${esc(a.name)}${best === a.id ? ' <span class="chip">best</span>' : ''}</div><div class="adesc">${esc(a.desc)}</div></td>${cells}</tr>`;
+  }).join('');
+}
+function renderPieces() {
+  const id = job && selectedAlgo(), box = $('#areaChart'), W = Math.max(260, box.clientWidth);
+  const key = job ? [job.id, id, W, dark(), id && job.evals[id] ? 1 : 0].join(':') : '';
+  if (memo.pieces === key) return;
+  memo.pieces = key;
+  if (!id) { box.innerHTML = ''; $('#piecesBody').innerHTML = ''; $('#piecesTitle').textContent = ''; return; }
+  const ev = job.evals[id], rects = job.results[id].rects, A = job.A, lo = job.lo, hi = job.hi, dk = dark();
+  $('#piecesTitle').textContent = `· ${ALGO[id].name}`;
+  const H = 230, m = { l: 40, r: 8, t: 10, b: 18 }, pw = W - m.l - m.r, ph = H - m.t - m.b;
+  let y0 = Math.min(lo, ev.minA), y1 = Math.max(hi, ev.maxA);
+  const pad = Math.max(1, (y1 - y0) * 0.15);
+  y0 -= pad; y1 += pad;
+  if (y1 - y0 < 2) { y0 -= 1; y1 += 1; }
+  const sy = (v) => m.t + ph * (1 - (v - y0) / (y1 - y0)), n = rects.length, bw = pw / n;
+  let svg = `<svg width="${W}" height="${H}" role="img" aria-label="Piece areas compared with the average">`;
+  svg += `<rect x="${m.l}" y="${sy(hi + .5)}" width="${pw}" height="${sy(lo - .5) - sy(hi + .5)}" fill="color-mix(in srgb, var(--ok) 13%, transparent)"/>`;
+  for (const [v, lbl] of [[lo, lo], [hi, hi]]) svg += `<text x="${m.l - 6}" y="${sy(v) + 4}" text-anchor="end">${lbl}</text>`;
+  if (Math.abs(sy(A) - sy(lo)) > 11 && Math.abs(sy(A) - sy(hi)) > 11) svg += `<text x="${m.l - 6}" y="${sy(A) + 4}" text-anchor="end">${fmt(A, 1)}</text>`;
+  rects.forEach((r, i) => {
+    const a = r[2] * r[3], x = m.l + i * bw + (bw > 4 ? bw * 0.12 : 0), w = Math.max(0.6, bw > 4 ? bw * 0.76 : bw), ya = sy(a), yA = sy(A);
+    const top = Math.min(ya, yA), h = Math.max(1, Math.abs(ya - yA)), out = a < lo || a > hi;
+    svg += `<rect data-i="${i}" x="${x.toFixed(2)}" y="${top.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" fill="${pieceColor(i, dk)}" ${out ? 'stroke="var(--bad)" stroke-width="1.5"' : 'stroke="var(--sq-line)" stroke-width=".5"'}><title>#${i + 1}: ${r[2]}×${r[3]} = ${a} squares (${fmtSigned(a - A, 2)}, ${fmtSigned(100 * (a - A) / A, 1)} %)</title></rect>`;
+  });
+  svg += `<line x1="${m.l}" x2="${m.l + pw}" y1="${sy(A)}" y2="${sy(A)}" stroke="var(--muted)" stroke-dasharray="4 3"/>`;
+  svg += `<text x="${m.l + pw}" y="${H - 4}" text-anchor="end">pieces 1–${n} in reading order</text></svg>`;
+  box.innerHTML = svg;
+  $('#piecesBody').innerHTML = rects.map((r, i) => {
+    const a = r[2] * r[3], out = a < lo || a > hi;
+    return `<tr data-i="${i}"><td><span class="sw" style="background:${pieceColor(i, dk)}"></span>${i + 1}</td><td>${r[2]} × ${r[3]}</td><td>${3 * r[2]} × ${3 * r[3]}</td><td class="num">${a}</td><td class="num ${out ? 'bad' : ''}">${fmtSigned(a - A, 2)}</td><td class="num ${out ? 'bad' : ''}">${fmtSigned(100 * (a - A) / A, 1)}</td></tr>`;
+  }).join('');
+}
+function niceTicks(a, b, count) {
+  const raw = (b - a) / count, mag = 10 ** Math.floor(Math.log10(raw || 1)), f = raw / mag;
+  const step = Math.max(1, (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * mag), out = [];
+  for (let v = Math.ceil(a / step) * step; v <= b + 1e-9; v += step) out.push(Math.round(v));
+  return out;
+}
+function renderTradeoff() {
+  const box = $('#tradeoff');
+  if (!job) { box.innerHTML = ''; return; }
+  const W = Math.max(320, box.clientWidth), ps = job.stale ? null : proofState(), here = ps ? ps.best : null;
+  const key = [job.id, job.chart.length, job.chartDone, W, state.T, dark(), here].join(':');
+  if (memo.trade === key) return;
+  memo.trade = key;
+  const pts = job.chart.slice().sort((a, b) => a.T - b.T), Tmax = job.chartTmax || 30;
+  if (job.chartNote) { box.innerHTML = `<p class="muted">Trade-off chart ${esc(job.chartNote)}.</p>`; return; }
+  if (!pts.length) { box.innerHTML = '<p class="muted"><span class="spin"></span> computing…</p>'; return; }
+  const H = 270, m = { l: 46, r: 16, t: 14, b: 36 }, pw = W - m.l - m.r, ph = H - m.t - m.b;
+  const vals = here != null ? [here] : [];
+  pts.forEach(p => { for (const k of ['best', 'cols', 'lb']) if (p[k] != null) vals.push(p[k]); });
+  let y0 = vals.length ? Math.min(...vals) : 0, y1 = vals.length ? Math.max(...vals) : 10;
+  const pad = Math.max(1, (y1 - y0) * 0.1);
+  y0 = Math.max(0, y0 - pad); y1 += pad;
+  const sx = (t) => m.l + pw * t / Tmax, sy = (v) => m.t + ph * (1 - (v - y0) / (y1 - y0));
+  let svg = `<svg width="${W}" height="${H}" style="cursor:crosshair" role="img" aria-label="Shared edges for each tolerance">`;
+  for (const v of niceTicks(y0, y1, 5)) svg += `<line x1="${m.l}" x2="${m.l + pw}" y1="${sy(v)}" y2="${sy(v)}" stroke="var(--line)"/><text x="${m.l - 6}" y="${sy(v) + 4}" text-anchor="end">${v}</text>`;
+  for (let t = 0; t <= Tmax; t += 5) svg += `<line x1="${sx(t)}" x2="${sx(t)}" y1="${m.t + ph}" y2="${m.t + ph + 4}" stroke="var(--muted)"/><text x="${sx(t)}" y="${m.t + ph + 16}" text-anchor="middle">±${t}%</text>`;
+  svg += `<text x="${m.l + pw / 2}" y="${H - 3}" text-anchor="middle">area tolerance</text>`;
+  svg += `<text transform="translate(12 ${m.t + ph / 2}) rotate(-90)" text-anchor="middle">shared edges (squares)</text>`;
+  svg += `<line x1="${m.l}" x2="${m.l + pw}" y1="${m.t + ph}" y2="${m.t + ph}" stroke="var(--muted)"/>`;
+  const step = (k) => {
+    let d = '', down = false;
+    for (const p of pts) {
+      const v = p[k];
+      if (v == null) { down = false; continue; }
+      d += down ? `V${sy(v).toFixed(1)}` : `M${sx(p.T).toFixed(1)},${sy(v).toFixed(1)}`;
+      d += `H${sx(Math.min(Tmax, p.T + 1)).toFixed(1)}`;
+      down = true;
+    }
+    return d;
+  };
+  svg += `<path d="${step('lb')}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="2 3"/>`;
+  svg += `<path d="${step('cols')}" fill="none" stroke="var(--warn)" stroke-width="1.5" stroke-dasharray="6 4"/>`;
+  svg += `<path d="${step('best')}" fill="none" stroke="var(--brand)" stroke-width="2.5"/>`;
+  for (const p of pts) {
+    if (p.best != null) svg += `<circle cx="${sx(p.T)}" cy="${sy(p.best)}" r="3" fill="var(--brand)"><title>±${p.T} % (areas ${p.lo}–${p.hi}): ${p.best} with guillotine + pinwheel DP${p.cols != null ? ', columns ' + p.cols : ''}${p.lb != null ? ', lower bound ' + p.lb : ''}</title></circle>`;
+    else if (p.lb == null) svg += `<text x="${sx(p.T)}" y="${m.t + ph - 4}" text-anchor="middle" style="fill:var(--bad);font-size:13px;font-weight:700">×<title>±${p.T} %: no layout possible (areas ${p.lo}–${p.hi})</title></text>`;
+    else if (p.skipped) svg += `<text x="${sx(p.T)}" y="${m.t + ph - 4}" text-anchor="middle">?<title>±${p.T} %: skipped (too large to compute)</title></text>`;
+  }
+  const tx = sx(Math.min(state.T, Tmax));
+  svg += `<line x1="${tx}" x2="${tx}" y1="${m.t}" y2="${m.t + ph}" stroke="var(--edge)" stroke-dasharray="3 3"/><text x="${Math.min(tx + 4, m.l + pw - 40)}" y="${m.t + 10}" style="fill:var(--edge)">±${state.T} %</text>`;
+  if (here != null && state.T <= Tmax) {
+    const hy = sy(here), d = 6;
+    svg += `<path d="M${tx},${hy - d}L${tx + d},${hy}L${tx},${hy + d}L${tx - d},${hy}Z" fill="var(--edge)" stroke="var(--panel)" stroke-width="1.5"><title>Best layout found on this page at ±${state.T} % (including the exhaustive search): ${here}</title></path>`;
+  }
+  if (!job.chartDone) svg += `<text x="${m.l + pw}" y="${m.t + 10}" text-anchor="end">computing ${pts.length}/${Tmax + 1}…</text>`;
+  else if (job.chartPartial) svg += `<text x="${m.l + pw}" y="${m.t + 10}" text-anchor="end">stopped early (time limit)</text>`;
+  svg += '</svg>';
+  box.innerHTML = svg;
+  box.querySelector('svg')._sx = (px) => (px - m.l) / pw * Tmax;
+}
+function renderCallout() {
+  const el = $('#callout');
+  let html = '', warn = false;
+  if (job && !job.stale) {
+    const meta = job.meta, anyWithin = ALGOS.some(a => job.evals[a.id] && job.evals[a.id].ok && job.evals[a.id].within);
+    if (meta && meta.lbShared == null && meta.lbExact) {
+      warn = true;
+      html = `<b>No layout can satisfy ±${job.params.T} %.</b> ${job.params.n} pieces with areas ${job.lo}–${job.hi} squares cannot fill ${job.params.X} × ${job.params.Y} (the sizes can't add up, or the shapes don't fit). The best layouts outside the tolerance are shown instead. Use the trade-off chart to find the smallest tolerance that works.`;
+    } else if (job.solveDone && !anyWithin) {
+      warn = true;
+      html = `<b>No algorithm found a layout within ±${job.params.T} %.</b> The closest one is shown. Try a higher tolerance or a longer exhaustive search.`;
+    }
+  }
+  const p = state.preset && PRESETS.find(q => q.id === state.preset);
+  if (p) html = `<b>${esc(p.name)}:</b> ${esc(p.note)}` + (html ? '<br>' + html : '');
+  el.className = 'callout' + (warn ? ' warn' : '');
+  el.innerHTML = html;
+}
+
+/* ---------- init ---------- */
+$('#algoList').innerHTML = ALGOS.map(a => `<li><b>${esc(a.name)}</b>: ${esc(a.desc)}</li>`).join('');
+readHash();
+bindControls();
+syncControls();
+startJob();
+})();
+</script>
+</body>
+</html>
