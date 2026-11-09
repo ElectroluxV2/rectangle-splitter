@@ -87,6 +87,10 @@ tr.clickable:hover td { background: color-mix(in srgb, var(--brand) 6%, transpar
 tr.selected td { background: var(--brand-soft) !important; }
 .aname { font-weight: 600; white-space: nowrap; }
 .adesc { color: var(--muted); font-size: 12px; max-width: 360px; }
+.bigo { margin-top: 4px; }
+code.o { font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--sq); color: var(--ink); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.legend-o { margin-top: 6px; }
+.legend-o b { color: var(--ink); font-weight: 600; }
 td.status { font-size: 12px; min-width: 150px; }
 .split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
 .scroll { max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
@@ -181,6 +185,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 0 0 
         </table>
       </div>
       <div class="hint">Click a row to show that layout in the “After” view. “vs best” compares only layouts within the tolerance.</div>
+      <div class="hint legend-o" id="bigoLegend"></div>
     </section>
 
     <section class="panel">
@@ -212,9 +217,10 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 0 0 
       <p>The big rectangle is <b>X × Y squares</b>. Each square is 3 × 3 cells and may not be cut through, so every cut runs along square boundaries. Lengths are shown in squares; one square edge is 3 cells.</p>
       <p><b>Shared edges</b> are the total length of all boundaries between two different pieces. The outer border doesn't count. Every inner edge belongs to exactly two pieces, which gives the key identity:</p>
       <p style="text-align:center"><code>shared edges = Σ (wᵢ + hᵢ) − X − Y</code></p>
-      <p>So the goal is to make the pieces' half-perimeters as small as possible, which means pieces as close to square as possible. It also gives a <b>lower bound</b>: a piece of area <i>a</i> needs at least min(w + h) over all w × h = a that fit. Combining the cheapest allowed areas that add up to X·Y gives a value no layout can beat.</p>
+      <p>So the goal is to make the pieces' half-perimeters as small as possible, which means pieces as close to square as possible. It also gives a <b>lower bound</b>: a piece of area <i>a</i> needs at least min(w + h) over all w × h = a that fit. Combining the cheapest allowed areas that add up to X·Y gives a value no layout can beat. A small knapsack-style DP computes it in <code class="o">O(n² · Δ²)</code>, where Δ is the number of allowed piece areas.</p>
       <p><b>Similar size:</b> every piece must have an area within ±T % of the average X·Y / n. The two whole numbers nearest the average are always allowed. If two layouts have the same shared-edge length, the one whose areas are closer to the average wins (smaller sum of squared deviations).</p>
       <h3>Algorithms</h3>
+      <p>Running times use these symbols: <b>X</b>, <b>Y</b> = width and height in squares; <b>n</b> = number of pieces; <b>K</b> = how many different piece counts one region can take within the tolerance (1 at ±0 %, about 1 + 2·T·n in general, never more than n); <b>S</b> = number of allowed piece shapes w × h; <b>P</b> = number of sub-rectangle sizes that fit exactly 5 pieces; <b>d(n)</b> = number of divisors of n. The table above shows their values for the current settings. Checking a finished layout (coverage and shared edges) takes O(X · Y) on top.</p>
       <ul id="algoList"></ul>
       <p class="muted">Every result is checked independently in the page: the pieces must tile the rectangle exactly, and shared edges are counted square by square.</p>
     </section>
@@ -226,14 +232,22 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 0 0 
 'use strict';
 /* Solver core: pure functions, used by the page and by Web Workers (this script's text becomes the worker). */
 const ALGOS = [
-  { id: 'strips', name: 'Strips', desc: 'n parallel strips across the shorter side. The simplest possible cut.' },
-  { id: 'grid', name: 'Uniform grid', desc: 'r × c grid with r · c = n. Falls back to strips when n is prime.' },
-  { id: 'bisect', name: 'Recursive bisection', desc: 'Halve the piece count and cut across the longer side, recursively (k-d tree style).' },
-  { id: 'squarify', name: 'Squarified treemap', desc: 'Bruls–Huizing–van Wijk treemap: fill rows along the short side while the pieces get squarer.' },
-  { id: 'columns', name: 'Columns DP', desc: 'Best layout made of full-height columns (or full-width rows), each stacked with near-equal pieces. Exact within that family.' },
-  { id: 'guillotine', name: 'Guillotine DP', desc: 'Best layout made only of straight edge-to-edge cuts, applied recursively. Exact within that family.' },
-  { id: 'pinwheel', name: 'Guillotine + pinwheel DP', desc: 'Guillotine DP that may also place a 5-piece pinwheel (no straight cut can separate it) inside any sub-rectangle.' },
-  { id: 'search', name: 'Exhaustive search', desc: 'Branch & bound over every possible layout, seeded with the best result above. Proves the optimum if it finishes in time.' },
+  { id: 'strips', name: 'Strips', bigO: 'O(n)', desc: 'n parallel strips across the shorter side. The simplest possible cut.',
+    why: 'One even split of the long side gives all n − 1 cut positions.' },
+  { id: 'grid', name: 'Uniform grid', bigO: 'O(n · d(n))', desc: 'r × c grid with r · c = n. Falls back to strips when n is prime.',
+    why: 'Tries each of the d(n) factorisations r × c = n and checks the n piece areas of each.' },
+  { id: 'bisect', name: 'Recursive bisection', bigO: 'O(n) typical · O(n²) worst', desc: 'Halve the piece count and cut across the longer side, recursively (k-d tree style).',
+    why: 'Makes n − 1 cuts. Each cut normally uses the first, most balanced split it tries; in tight corners a region with k pieces may try up to k splits.' },
+  { id: 'squarify', name: 'Squarified treemap', bigO: 'O(n)', desc: 'Bruls–Huizing–van Wijk treemap: fill rows along the short side while the pieces get squarer.',
+    why: 'Each piece is looked at a constant number of times while the rows are filled.' },
+  { id: 'columns', name: 'Columns DP', bigO: 'O((X² + Y²) · K²)', desc: 'Best layout made of full-height columns (or full-width rows), each stacked with near-equal pieces. Exact within that family.',
+    why: 'For every prefix width (X) and piece count (K) it tries every width (X) and piece count (K) for the last column; then the same for rows.' },
+  { id: 'guillotine', name: 'Guillotine DP', bigO: 'O(X · Y · (X + Y) · K²)', desc: 'Best layout made only of straight edge-to-edge cuts, applied recursively. Exact within that family.',
+    why: 'For every sub-rectangle size (X · Y) it tries every cut position (X + Y) and every way to share the pieces between the two sides (K²).' },
+  { id: 'pinwheel', name: 'Guillotine + pinwheel DP', bigO: 'O(X · Y · (X + Y) · K² + P · X² · Y)', desc: 'Guillotine DP that may also place a 5-piece pinwheel (no straight cut can separate it) inside any sub-rectangle.',
+    why: 'The guillotine DP, plus every pinwheel position (X² · Y) in each of the P sub-rectangle sizes that hold exactly 5 pieces. The pinwheel step is capped by a work budget.' },
+  { id: 'search', name: 'Exhaustive search', bigO: 'O(Sⁿ) worst case', desc: 'Branch & bound over every possible layout, seeded with the best result above. Proves the optimum if it finishes in time.',
+    why: 'Tries every allowed shape (S) for each of the n pieces in turn, at O(S · X) per step. Exponential in the worst case; lower bounds, a transposition table and the time limit keep it practical.' },
 ];
 const DP_BUDGET = 6e8, PIN_BUDGET = 6e7, COL_BUDGET = 2e8, CHART_BUDGET = 1.2e8, CHART_PIN_BUDGET = 1.5e7, CHART_COL_BUDGET = 4e7;
 const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
@@ -342,20 +356,21 @@ function solveBisect(X, Y, n) {
   const rects = [];
   (function rec(x, y, w, h, k) {
     if (k === 1) { rects.push([x, y, w, h]); return; }
-    const ks = [];
-    for (let k1 = 1; k1 < k; k1++) ks.push(k1);
-    ks.sort((a, b) => Math.abs(2 * a - k) - Math.abs(2 * b - k) || a - b);
-    const orients = w >= h ? [0, 1] : [1, 0];
-    for (const k1 of ks) {
-      const k2 = k - k1;
-      for (const o of orients) {
-        const L = o === 0 ? w : h, S = o === 0 ? h : w;
-        const pMin = Math.max(1, Math.ceil(k1 / S)), pMax = Math.min(L - 1, L - Math.ceil(k2 / S));
-        if (pMin > pMax) continue;
-        const p = Math.min(pMax, Math.max(pMin, Math.round(L * k1 / k)));
-        if (o === 0) { rec(x, y, p, h, k1); rec(x + p, y, w - p, h, k2); }
-        else { rec(x, y, w, p, k1); rec(x, y + p, w, h - p, k2); }
-        return;
+    const orients = w >= h ? [0, 1] : [1, 0], a = Math.floor(k / 2), b = k - a;
+    // Piece splits from the most balanced outwards: a, b, a − 1, b + 1, …
+    for (let d = 0; d < k; d++) {
+      for (const k1 of a - d === b + d ? [a] : [a - d, b + d]) {
+        if (k1 < 1 || k1 > k - 1) continue;
+        const k2 = k - k1;
+        for (const o of orients) {
+          const L = o === 0 ? w : h, S = o === 0 ? h : w;
+          const pMin = Math.max(1, Math.ceil(k1 / S)), pMax = Math.min(L - 1, L - Math.ceil(k2 / S));
+          if (pMin > pMax) continue;
+          const p = Math.min(pMax, Math.max(pMin, Math.round(L * k1 / k)));
+          if (o === 0) { rec(x, y, p, h, k1); rec(x + p, y, w - p, h, k2); }
+          else { rec(x, y, w, p, k1); rec(x, y + p, w, h - p, k2); }
+          return;
+        }
       }
     }
     throw new Error('bisection got stuck');
@@ -378,8 +393,7 @@ function solveSquarify(X, Y, n) {
     if (m === k) t = L;
     else {
       m = Math.max(m, k - (L - 1) * S);
-      t = Math.max(1, Math.min(L - 1, Math.round(m * a / S)));
-      while (t > 1 && (L - t) * S < k - m) t--;
+      t = Math.max(1, Math.min(L - 1, Math.round(m * a / S), L - Math.ceil((k - m) / S)));
     }
     let p = 0;
     for (const len of evenSplit(S, m)) { rects.push(colMode ? [x, y + p, t, len] : [x + p, y, len, t]); p += len; }
@@ -958,12 +972,24 @@ function makeWorker() {
   if (!workerURL) workerURL = URL.createObjectURL(new Blob([document.getElementById('core').textContent], { type: 'text/javascript' }));
   return new Worker(workerURL);
 }
+// Concrete values of the running-time symbols for the current settings.
+function complexitySymbols(X, Y, n, lo, hi) {
+  let K = 0, S = 0, P = 0, d = 0;
+  for (let w = 1; w <= X; w++) for (let h = 1; h <= Y; h++) {
+    const a = w * h, l = Math.max(1, Math.ceil(a / hi)), u = Math.min(n, Math.floor(a / lo));
+    if (u >= l) K = Math.max(K, u - l + 1);
+    if (a >= lo && a <= hi) S++;
+    if (w >= 3 && h >= 3 && l <= 5 && u >= 5) P++;
+  }
+  for (let i = 1; i * i <= n; i++) if (n % i === 0) d += i * i === n ? 1 : 2;
+  return { K, S, P, d };
+}
 function startJob() {
   workers.forEach(w => w.terminate());
   workers = [];
   const params = { X: state.X, Y: state.Y, n: state.n, T: state.T, searchMs: state.s * 1000 };
   const r = allowedRange(params.X, params.Y, params.n, params.T);
-  job = { id: ++seq, params, A: r.A, lo: r.lo, hi: r.hi, results: {}, evals: {}, current: null, solveDone: false, chart: [], chartTmax: 30, chartDone: false, chartPartial: false, t0: performance.now(), meta: null, fatal: null, stale: false, searchProg: null };
+  job = { id: ++seq, params, A: r.A, lo: r.lo, hi: r.hi, sym: complexitySymbols(params.X, params.Y, params.n, r.lo, r.hi), results: {}, evals: {}, current: null, solveDone: false, chart: [], chartTmax: 30, chartDone: false, chartPartial: false, t0: performance.now(), meta: null, fatal: null, stale: false, searchProg: null };
   state.hover = -1;
   writeHash();
   const id = job.id;
@@ -1198,7 +1224,7 @@ function renderCards() {
     card('Shared edges', `${ev.shared} <small>squares</small>`, `= ${ev.shared * 3} cells · ${opt}`) +
     card('Piece areas', `${ev.minA}–${ev.maxA} <small>squares</small>`, `average ${fmt(job.A, 2)} · max deviation <b>${fmt(ev.maxDevPct, 1)} %</b> · σ ${fmt(ev.std, 2)}<br>${within}`) +
     card('Layout', `${ev.areas.length} <small>pieces</small>`, `${ev.pairs} neighbouring pairs · ${ev.guillotine ? 'straight cuts only' : '<b>not</b> possible with straight cuts alone'}`) +
-    card('Algorithm', esc(ALGO[id].name), `${esc(r.status || '')}${r.note ? ' · ' + esc(r.note) : ''} · ${fmtMs(r.ms)}`);
+    card('Algorithm', esc(ALGO[id].name), `<code class="o" title="${esc(ALGO[id].why)}">${esc(ALGO[id].bigO)}</code><br>${esc(r.status || '')}${r.note ? ' · ' + esc(r.note) : ''} · ${fmtMs(r.ms)}`);
 }
 function renderTable() {
   const tb = $('#cmpBody');
@@ -1220,8 +1246,11 @@ function renderTable() {
         `<td class="c">${ev.within ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>'}</td><td class="c">${ev.guillotine ? '✓' : '<span class="warn" title="Needs a non-straight-cut layout">✗</span>'}</td>` +
         `<td class="num">${fmtMs(r.ms)}</td><td class="status">${status}</td>`;
     }
-    return `<tr data-algo="${a.id}" class="${ok ? 'clickable' : ''} ${ok && sel === a.id ? 'selected' : ''}" ${ok ? 'tabindex="0"' : ''}><td><div class="aname">${esc(a.name)}${best === a.id ? ' <span class="chip">best</span>' : ''}</div><div class="adesc">${esc(a.desc)}</div></td>${cells}</tr>`;
+    return `<tr data-algo="${a.id}" class="${ok ? 'clickable' : ''} ${ok && sel === a.id ? 'selected' : ''}" ${ok ? 'tabindex="0"' : ''}><td><div class="aname">${esc(a.name)}${best === a.id ? ' <span class="chip">best</span>' : ''}</div><div class="adesc">${esc(a.desc)}</div><div class="bigo"><code class="o" title="${esc(a.why)}">${esc(a.bigO)}</code></div></td>${cells}</tr>`;
   }).join('');
+  const sy = job.sym, p = job.params;
+  $('#bigoLegend').innerHTML = `Running time symbols: X, Y = size in squares · n = pieces · K = piece counts one region can take within the tolerance · S = allowed piece shapes · P = sub-rectangle sizes that fit exactly 5 pieces · d(n) = divisors of n. ` +
+    `Current values: <b>X = ${p.X}</b>, <b>Y = ${p.Y}</b>, <b>n = ${p.n}</b>, <b>K = ${sy.K}</b>, <b>S = ${sy.S}</b>, <b>P = ${sy.P}</b>, <b>d(n) = ${sy.d}</b>. Hover a complexity for an explanation.`;
 }
 function renderPieces() {
   const id = job && selectedAlgo(), box = $('#areaChart'), W = Math.max(260, box.clientWidth);
@@ -1334,7 +1363,7 @@ function renderCallout() {
 }
 
 /* ---------- init ---------- */
-$('#algoList').innerHTML = ALGOS.map(a => `<li><b>${esc(a.name)}</b>: ${esc(a.desc)}</li>`).join('');
+$('#algoList').innerHTML = ALGOS.map(a => `<li><b>${esc(a.name)}</b> <code class="o">${esc(a.bigO)}</code><br>${esc(a.desc)} <span class="muted">${esc(a.why)}</span></li>`).join('');
 readHash();
 bindControls();
 syncControls();
